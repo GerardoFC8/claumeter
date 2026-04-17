@@ -53,7 +53,7 @@ brews:
   - name: claumeter
     repository:
       owner: GerardoFC8
-      name: homebrew-claumeter
+      name: homebrew-tap
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
