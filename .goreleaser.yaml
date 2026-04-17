@@ -1,0 +1,67 @@
+version: 2
+
+project_name: claumeter
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: claumeter
+    main: ./cmd/claumeter
+    binary: claumeter
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+brews:
+  - name: claumeter
+    repository:
+      owner: GerardoFC8
+      name: homebrew-claumeter
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/GerardoFC8/claumeter"
+    description: "Interactive TUI for AI assistant token usage analysis"
+    license: "MIT"
+    install: |
+      bin.install "claumeter"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com

@@ -11,6 +11,12 @@ import (
 	"github.com/GerardoFC8/claumeter/internal/usage"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	defaultRoot, err := usage.DefaultProjectsDir()
 	if err != nil {
@@ -18,7 +24,13 @@ func main() {
 		os.Exit(1)
 	}
 	root := flag.String("root", defaultRoot, "directory with Claude Code JSONL transcripts")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("claumeter %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
 
 	if _, err := os.Stat(*root); err != nil {
 		fmt.Fprintf(os.Stderr, "cannot access %s: %v\n", *root, err)
