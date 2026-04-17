@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/GerardoFC8/claumeter/internal/export"
@@ -17,7 +18,8 @@ func runCompact(cmd, _ string, args []string) {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	defaultRoot, _ := usage.DefaultProjectsDir()
 	root := fs.String("root", defaultRoot, "directory with Claude Code JSONL transcripts")
-	asJSON := fs.Bool("json", false, "JSON output")
+	format := fs.String("format", "plain", "output: plain, json, waybar, prompt")
+	asJSON := fs.Bool("json", false, "shorthand for --format=json")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
@@ -39,7 +41,7 @@ func runCompact(cmd, _ string, args []string) {
 	filtered := preset.Apply(data)
 	r := stats.Build(filtered)
 	from, to := preset.Range(time.Now())
-	writeCompact(preset.Label(), from, to, r, *asJSON)
+	writeCompact(preset.Label(), from, to, r, resolveFormat(*format, *asJSON))
 }
 
 // runRange handles `range 2026-04-01:2026-04-17`.
@@ -47,12 +49,13 @@ func runRange(args []string) {
 	fs := flag.NewFlagSet("range", flag.ExitOnError)
 	defaultRoot, _ := usage.DefaultProjectsDir()
 	root := fs.String("root", defaultRoot, "directory with Claude Code JSONL transcripts")
-	asJSON := fs.Bool("json", false, "JSON output")
+	format := fs.String("format", "plain", "output: plain, json, waybar, prompt")
+	asJSON := fs.Bool("json", false, "shorthand for --format=json")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: claumeter range <from>[:<to>] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: claumeter range <from>[:<to>] [--format=fmt]")
 		os.Exit(2)
 	}
 	from, to, err := stats.ParseRange(fs.Arg(0), time.Local)
@@ -68,24 +71,71 @@ func runRange(args []string) {
 	filtered := stats.ApplyRange(data, from, to)
 	r := stats.Build(filtered)
 	label := fmt.Sprintf("%s → %s", from.Format("2006-01-02"), to.AddDate(0, 0, -1).Format("2006-01-02"))
-	writeCompact(label, from, to, r, *asJSON)
+	writeCompact(label, from, to, r, resolveFormat(*format, *asJSON))
 }
 
-func writeCompact(label string, from, to time.Time, r stats.Report, asJSON bool) {
-	payload := export.NewCompact(label, from, to, r)
+func resolveFormat(format string, asJSON bool) string {
 	if asJSON {
+		return "json"
+	}
+	return strings.ToLower(format)
+}
+
+func writeCompact(label string, from, to time.Time, r stats.Report, format string) {
+	payload := export.NewCompact(label, from, to, r)
+	switch format {
+	case "json":
 		out, _ := json.MarshalIndent(payload, "", "  ")
 		fmt.Println(string(out))
-		return
+	case "waybar":
+		out, _ := json.Marshal(waybarPayload(payload))
+		fmt.Println(string(out))
+	case "prompt":
+		fmt.Println(promptLine(payload))
+	case "", "plain":
+		fmt.Println(plainLine(payload))
+	default:
+		fmt.Fprintf(os.Stderr, "unknown format %q (want plain, json, waybar, prompt)\n", format)
+		os.Exit(2)
 	}
+}
+
+func plainLine(p export.CompactPayload) string {
 	line := fmt.Sprintf("%s: %d prompts · %d turns · %s tokens · $%.2f",
-		payload.Range, payload.Prompts, payload.Turns,
-		compactInt(payload.Tokens), payload.Cost,
+		p.Range, p.Prompts, p.Turns, compactInt(p.Tokens), p.Cost,
 	)
-	if payload.TopModel != "" {
-		line += " (" + payload.TopModel + ")"
+	if p.TopModel != "" {
+		line += " (" + p.TopModel + ")"
 	}
-	fmt.Println(line)
+	return line
+}
+
+func promptLine(p export.CompactPayload) string {
+	if p.Tokens == 0 {
+		return "$0"
+	}
+	return fmt.Sprintf("$%.2f · %dp", p.Cost, p.Prompts)
+}
+
+type waybarOut struct {
+	Text    string `json:"text"`
+	Tooltip string `json:"tooltip"`
+	Class   string `json:"class"`
+	Alt     string `json:"alt,omitempty"`
+}
+
+func waybarPayload(p export.CompactPayload) waybarOut {
+	text := fmt.Sprintf("$%.2f", p.Cost)
+	tooltip := fmt.Sprintf("%s\n%d prompts · %d turns · %s tokens",
+		p.Range, p.Prompts, p.Turns, compactInt(p.Tokens),
+	)
+	if p.TopModel != "" {
+		tooltip += "\nTop: " + p.TopModel
+	}
+	for _, m := range p.ByModel {
+		tooltip += fmt.Sprintf("\n  %s — $%.2f", m.Model, m.Cost)
+	}
+	return waybarOut{Text: text, Tooltip: tooltip, Class: "normal"}
 }
 
 func compactInt(n int) string {

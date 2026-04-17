@@ -1,0 +1,20 @@
+/* Optional styling — append to ~/.config/waybar/style.css */
+
+#custom-claumeter {
+    padding: 0 10px;
+    color: #22d3ee;
+    font-weight: bold;
+}
+
+#custom-claumeter.warning {
+    color: #f59e0b;
+}
+
+#custom-claumeter.critical {
+    color: #ef4444;
+    animation: blink 1s linear infinite;
+}
+
+@keyframes blink {
+    50% { opacity: 0.6; }
+}

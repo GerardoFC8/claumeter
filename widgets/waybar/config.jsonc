@@ -1,0 +1,12 @@
+// Paste inside your Waybar ~/.config/waybar/config.jsonc.
+// Then add "custom/claumeter" to modules-right (or wherever).
+{
+  "custom/claumeter": {
+    "exec": "claumeter today --format=waybar",
+    "interval": 30,
+    "return-type": "json",
+    "format": "{}",
+    "tooltip": true,
+    "on-click": "alacritty -e claumeter"
+  }
+}

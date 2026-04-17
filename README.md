@@ -99,6 +99,39 @@ claumeter export --format=json --range last-30d | jq '.by_model[] | {model, cost
 claumeter range 2026-04-01:2026-04-17 --json
 ```
 
+## Daemon mode
+
+Start a local HTTP server that exposes usage over JSON + SSE:
+
+```bash
+claumeter serve --port 7777
+```
+
+Endpoints:
+
+| Endpoint | What it returns |
+|---|---|
+| `GET /healthz` | Liveness + parsed event count |
+| `GET /today` | Compact JSON summary of today |
+| `GET /stats?range=last-7d` | Full report for a preset range |
+| `GET /range?from=YYYY-MM-DD&to=YYYY-MM-DD` | Full report for a custom range |
+| `GET /session/{id}` | Single session detail (first 8 chars of the UUID work) |
+| `GET /live` | Server-Sent Events — initial snapshot then updates whenever the JSONL changes |
+
+The daemon watches `~/.claude/projects/**` with fsnotify so `/today` and `/live` stay fresh without polling.
+
+For remote exposure (e.g. a home-lab dashboard) pass `--host 0.0.0.0 --token <secret>`. Without a token claumeter refuses to bind a non-loopback address.
+
+## Widgets
+
+Ready-made status-bar and prompt integrations live under [`widgets/`](./widgets/). Current bundle:
+
+- [Waybar](./widgets/waybar/) — niri / sway / Hyprland / river
+- [Starship](./widgets/starship/) — shell prompt segment
+- [Tmux](./widgets/tmux/) — status-bar segment
+
+Each widget can run standalone (`claumeter today --format=waybar` polled on an interval) or point at `claumeter serve` for sub-millisecond responses and real-time push via SSE.
+
 ## How it works
 
 Claude Code stores every session as JSONL at `~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl`. Each assistant event has a `message.usage` block with input / output / cache tokens plus a model identifier.
@@ -117,8 +150,10 @@ The parser distinguishes:
 - [x] Cost estimation with a versioned pricing table.
 - [x] `claumeter today` / `week` / `range` compact subcommands for scripting and shell prompts.
 - [x] JSON / CSV / Markdown export.
-- [ ] Daemon mode with HTTP API (`/stats`, `/today`, `/live`) and file-watch live tail.
-- [ ] Widget bundle for Waybar, Eww, polybar, tmux, sketchybar, starship.
+- [x] Daemon mode with HTTP API (`/stats`, `/today`, `/live`) and file-watch live tail.
+- [x] Widget bundle for Waybar, starship, tmux.
+- [ ] More widgets: Eww, polybar, sketchybar.
+- [ ] Budget alerts with desktop notifications.
 - [ ] Per-subagent drill-down and comparative date ranges.
 
 ## Related projects

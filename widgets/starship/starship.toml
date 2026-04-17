@@ -1,0 +1,11 @@
+# Paste into ~/.config/starship.toml
+
+[custom.claumeter]
+command = "claumeter today --format=prompt"
+when = 'test -d "$HOME/.claude/projects"'
+format = "[$output]($style) "
+style = "bold yellow"
+# description = "Claude Code usage today"
+
+# Optional: add to your prompt layout
+# format = """$directory $custom.claumeter $character"""
