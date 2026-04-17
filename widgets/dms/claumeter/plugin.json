@@ -1,0 +1,14 @@
+{
+    "id": "claumeter",
+    "name": "claumeter",
+    "description": "Claude Code token usage and cost in your DankBar",
+    "version": "1.0.0",
+    "license": "MIT",
+    "author": "Gerardo Franco",
+    "icon": "monitoring",
+    "type": "widget",
+    "capabilities": ["dankbar-widget", "monitoring"],
+    "component": "./ClaumeterWidget.qml",
+    "requires_dms": ">=1.2.0",
+    "requires": ["claumeter"]
+}

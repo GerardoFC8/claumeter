@@ -4,6 +4,7 @@ Ready-to-paste integrations for your status bar and prompt.
 
 | Widget | Path | Compositor / Shell |
 |---|---|---|
+| [DankMaterialShell](./dms/claumeter/) | `dms/claumeter/` | niri / Hyprland / sway users on DMS (native plugin) |
 | [Waybar](./waybar/) | `waybar/config.jsonc` + `style.css` | niri · sway · Hyprland · river |
 | [Starship](./starship/) | `starship/starship.toml` | any shell that runs Starship |
 | [Tmux](./tmux/) | `tmux/claumeter.conf` | any Tmux setup |
