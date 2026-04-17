@@ -6,17 +6,19 @@ import (
 )
 
 type Event struct {
-	Timestamp           time.Time
-	Model               string
-	SessionID           string
-	Cwd                 string
-	Version             string
-	GitBranch           string
-	InputTokens         int
-	OutputTokens        int
-	CacheCreationTokens int
-	CacheReadTokens     int
-	ServiceTier         string
+	Timestamp             time.Time
+	Model                 string
+	SessionID             string
+	Cwd                   string
+	Version               string
+	GitBranch             string
+	InputTokens           int
+	OutputTokens          int
+	CacheCreationTokens   int // total = 5m + 1h
+	CacheCreation5mTokens int
+	CacheCreation1hTokens int
+	CacheReadTokens       int
+	ServiceTier           string
 }
 
 func (e Event) TotalInputTokens() int {
@@ -99,6 +101,10 @@ type rawAssistantMsg struct {
 		CacheCreationInputTokens int    `json:"cache_creation_input_tokens"`
 		CacheReadInputTokens     int    `json:"cache_read_input_tokens"`
 		ServiceTier              string `json:"service_tier"`
+		CacheCreation            struct {
+			Ephemeral5m int `json:"ephemeral_5m_input_tokens"`
+			Ephemeral1h int `json:"ephemeral_1h_input_tokens"`
+		} `json:"cache_creation"`
 	} `json:"usage"`
 	Content []rawContentItem `json:"content"`
 }

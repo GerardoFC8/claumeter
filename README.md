@@ -21,9 +21,12 @@ Day         Prompts  Turns   opus-4-6  opus-4-7  sonnet-4-6  haiku   Total
 ## Features
 
 - **Activity matrix** — day × model token breakdown with a TOTAL footer row.
+- **Cost estimation** — USD per day, model, session, and project using current Anthropic pricing (Opus, Sonnet, Haiku 4.x).
 - **Prompts vs Turns** — correctly separates human messages from assistant API completions. Claude Code is agentic, so the ratio is usually 20–30×.
 - **Tools visibility** — see which built-ins (`Read`, `Bash`, `Edit`…), skills, MCP servers, and sub-agent types drove your spend.
 - **Global date filters** — cycle `All` / `Today` / `Yesterday` / `Last 7 / 30 / 90 days` / `This week` / `This month` with `f` / `F`.
+- **Compact subcommands** — `claumeter today`, `week`, `range` for shell prompts and scripts. JSON output for tooling.
+- **Exports** — JSON, CSV, and Markdown dumps ready to paste into docs, pipe into `jq`, or load in a spreadsheet.
 - **Vim navigation** — `j/k/g/G/ctrl+d/u/b/f` inside tables, `h/l` between tabs.
 - **Streaming JSONL parser** with a `NumCPU` worker pool — parses 300 MB / 600 files in under a second.
 
@@ -62,11 +65,38 @@ Just run `claumeter` — it reads `~/.claude/projects/**/*.jsonl` and opens the 
 | `ctrl+f` / `ctrl+b` | Full page down / up |
 | `q` / `esc` | Quit |
 
-### Flags
+### Subcommands
 
+```bash
+claumeter                                    # interactive TUI (default)
+claumeter today [--json]                     # compact one-liner for today
+claumeter week  [--json]                     # this-week summary
+claumeter range <from[:to]> [--json]         # custom date range (YYYY-MM-DD)
+claumeter export --format=<fmt> [--range R] [-o file]
+claumeter version
+claumeter help
 ```
-claumeter --root <path>    # default: ~/.claude/projects/
-claumeter --version
+
+`--format` accepts `json`, `csv`, or `markdown`. `--range` accepts a preset (`today`, `yesterday`, `last-7d`, `last-30d`, `last-90d`, `this-week`, `this-month`, `all`) or a raw `YYYY-MM-DD[:YYYY-MM-DD]`.
+
+### Examples
+
+```bash
+# quick "what did I spend today" for your shell prompt
+claumeter today
+# → Today: 72 prompts · 1,212 turns · 169.22M tokens · $174.23 (claude-opus-4-7)
+
+# last 7 days as CSV for a spreadsheet
+claumeter export --format=csv --range last-7d -o last-week.csv
+
+# markdown report to paste into Slack or docs
+claumeter export --format=markdown --range this-month
+
+# pipe JSON to jq for arbitrary queries
+claumeter export --format=json --range last-30d | jq '.by_model[] | {model, cost_usd}'
+
+# custom date range
+claumeter range 2026-04-01:2026-04-17 --json
 ```
 
 ## How it works
@@ -84,9 +114,9 @@ The parser distinguishes:
 ## Roadmap
 
 - [x] Interactive TUI with filters, activity matrix, and tool visibility.
-- [ ] Cost estimation with a versioned pricing table.
-- [ ] `claumeter today` / `week` compact subcommands for scripting and shell prompts.
-- [ ] JSON / CSV / Markdown export.
+- [x] Cost estimation with a versioned pricing table.
+- [x] `claumeter today` / `week` / `range` compact subcommands for scripting and shell prompts.
+- [x] JSON / CSV / Markdown export.
 - [ ] Daemon mode with HTTP API (`/stats`, `/today`, `/live`) and file-watch live tail.
 - [ ] Widget bundle for Waybar, Eww, polybar, tmux, sketchybar, starship.
 - [ ] Per-subagent drill-down and comparative date ranges.

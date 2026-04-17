@@ -20,12 +20,12 @@ func renderOverview(r stats.Report, width int) string {
 	}
 
 	cards := []string{
-		card("Total tokens", accentStyle.Render(compactNumber(r.Overall.GrandTotal())), humanNumber(r.Overall.GrandTotal())),
-		card("Prompts", goodStyle.Render(humanNumber(r.Overall.Prompts)), "human msgs"),
+		card("Total cost", goodStyle.Render(formatCost(r.Overall.Cost)), "USD, estimated"),
+		card("Tokens", accentStyle.Render(compactNumber(r.Overall.GrandTotal())), humanNumber(r.Overall.GrandTotal())),
+		card("Prompts", cardValueStyle.Render(humanNumber(r.Overall.Prompts)), "human msgs"),
 		card("Turns", cardValueStyle.Render(humanNumber(r.Overall.Turns)), "API completions"),
 		card("Turns/Prompt", accentStyle.Render(ratio), "agentic ratio"),
 		card("Sessions", cardValueStyle.Render(humanNumber(len(r.BySession))), ""),
-		card("Projects", cardValueStyle.Render(humanNumber(len(r.ByProject))), ""),
 		card("Days", cardValueStyle.Render(humanNumber(len(r.ByDay))), ""),
 	}
 	row1 := lipgloss.JoinHorizontal(lipgloss.Top, cards...)
@@ -51,13 +51,9 @@ func renderOverview(r stats.Report, width int) string {
 		dateRange,
 	)
 
-	topModels := topN("Top models", r.ByModel, 5, func(i int) (string, int) {
-		s := r.ByModel[i]
-		return shortModel(s.Model), s.Totals.GrandTotal()
-	})
-
-	topDays := topNSorted("Top days (by tokens)", r.ByDay, 5)
-	topProjects := topNProjects("Top projects", r.ByProject, 5)
+	topModels := topNModels("Top models (by cost)", r.ByModel, 5)
+	topDays := topNDays("Top days (by cost)", r.ByDay, 5)
+	topProjects := topNProjects("Top projects (by cost)", r.ByProject, 5)
 
 	col1 := lipgloss.JoinVertical(lipgloss.Left, breakdown, "", rangeBlock)
 	col2 := lipgloss.JoinVertical(lipgloss.Left, topModels, "", topDays)
@@ -80,53 +76,54 @@ func card(label, primary, secondary string) string {
 	return cardStyle.Render(content)
 }
 
-func topN[T any](title string, items []T, n int, extract func(i int) (string, int)) string {
-	if len(items) == 0 {
+func topNModels(title string, models []stats.ModelStat, n int) string {
+	if len(models) == 0 {
 		return accentStyle.Render(title) + "\n  (empty)"
 	}
-	if n > len(items) {
-		n = len(items)
+	sorted := make([]stats.ModelStat, len(models))
+	copy(sorted, models)
+	sortByCost := func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost }
+	bubbleSort(len(sorted), sortByCost, func(i, j int) { sorted[i], sorted[j] = sorted[j], sorted[i] })
+	if n > len(sorted) {
+		n = len(sorted)
 	}
+	max := sorted[0].Totals.Cost
 	var b strings.Builder
 	b.WriteString(accentStyle.Render(title))
 	b.WriteString("\n")
-	max := 0
 	for i := 0; i < n; i++ {
-		_, v := extract(i)
-		if v > max {
-			max = v
-		}
-	}
-	for i := 0; i < n; i++ {
-		name, v := extract(i)
-		b.WriteString(fmt.Sprintf("  %-22s %s %s\n", truncate(name, 22), bar(v, max, 10), compactNumber(v)))
+		m := sorted[i]
+		b.WriteString(fmt.Sprintf("  %-22s %s %s\n",
+			truncate(shortModel(m.Model), 22),
+			barFloat(m.Totals.Cost, max, 10),
+			formatCost(m.Totals.Cost),
+		))
 	}
 	return b.String()
 }
 
-func topNSorted(title string, days []stats.DayStat, n int) string {
+func topNDays(title string, days []stats.DayStat, n int) string {
 	if len(days) == 0 {
 		return accentStyle.Render(title) + "\n  (empty)"
 	}
 	sorted := make([]stats.DayStat, len(days))
 	copy(sorted, days)
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[j].Totals.GrandTotal() > sorted[i].Totals.GrandTotal() {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
+	sortByCost := func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost }
+	bubbleSort(len(sorted), sortByCost, func(i, j int) { sorted[i], sorted[j] = sorted[j], sorted[i] })
 	if n > len(sorted) {
 		n = len(sorted)
 	}
+	max := sorted[0].Totals.Cost
 	var b strings.Builder
 	b.WriteString(accentStyle.Render(title))
 	b.WriteString("\n")
-	max := sorted[0].Totals.GrandTotal()
 	for i := 0; i < n; i++ {
-		s := sorted[i]
-		b.WriteString(fmt.Sprintf("  %-12s %s %s\n", s.Day, bar(s.Totals.GrandTotal(), max, 10), compactNumber(s.Totals.GrandTotal())))
+		d := sorted[i]
+		b.WriteString(fmt.Sprintf("  %-12s %s %s\n",
+			d.Day,
+			barFloat(d.Totals.Cost, max, 10),
+			formatCost(d.Totals.Cost),
+		))
 	}
 	return b.String()
 }
@@ -135,18 +132,36 @@ func topNProjects(title string, projects []stats.ProjectStat, n int) string {
 	if len(projects) == 0 {
 		return accentStyle.Render(title) + "\n  (empty)"
 	}
-	if n > len(projects) {
-		n = len(projects)
+	sorted := make([]stats.ProjectStat, len(projects))
+	copy(sorted, projects)
+	sortByCost := func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost }
+	bubbleSort(len(sorted), sortByCost, func(i, j int) { sorted[i], sorted[j] = sorted[j], sorted[i] })
+	if n > len(sorted) {
+		n = len(sorted)
 	}
+	max := sorted[0].Totals.Cost
 	var b strings.Builder
 	b.WriteString(accentStyle.Render(title))
 	b.WriteString("\n")
-	max := projects[0].Totals.GrandTotal()
 	for i := 0; i < n; i++ {
-		p := projects[i]
-		b.WriteString(fmt.Sprintf("  %-26s %s %s\n", truncate(shortenPath(p.Cwd), 26), bar(p.Totals.GrandTotal(), max, 10), compactNumber(p.Totals.GrandTotal())))
+		p := sorted[i]
+		b.WriteString(fmt.Sprintf("  %-26s %s %s\n",
+			truncate(shortenPath(p.Cwd), 26),
+			barFloat(p.Totals.Cost, max, 10),
+			formatCost(p.Totals.Cost),
+		))
 	}
 	return b.String()
+}
+
+func bubbleSort(n int, less func(i, j int) bool, swap func(i, j int)) {
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			if less(j, i) {
+				swap(i, j)
+			}
+		}
+	}
 }
 
 func bar(v, max, width int) string {
@@ -156,6 +171,21 @@ func bar(v, max, width int) string {
 	filled := (v * width) / max
 	if filled > width {
 		filled = width
+	}
+	return lipgloss.NewStyle().Foreground(colorAccent).Render(strings.Repeat("█", filled)) +
+		lipgloss.NewStyle().Foreground(colorMuted).Render(strings.Repeat("░", width-filled))
+}
+
+func barFloat(v, max float64, width int) string {
+	if max <= 0 {
+		return strings.Repeat(" ", width)
+	}
+	filled := int(float64(width) * v / max)
+	if filled > width {
+		filled = width
+	}
+	if filled < 0 {
+		filled = 0
 	}
 	return lipgloss.NewStyle().Foreground(colorAccent).Render(strings.Repeat("█", filled)) +
 		lipgloss.NewStyle().Foreground(colorMuted).Render(strings.Repeat("░", width-filled))

@@ -1,6 +1,8 @@
 package stats
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/GerardoFC8/claumeter/internal/usage"
@@ -108,10 +110,15 @@ func (p FilterPreset) Apply(data usage.Data) usage.Data {
 		return data
 	}
 	from, to := p.Range(time.Now())
+	return ApplyRange(data, from, to)
+}
+
+// ApplyRange filters data to events with timestamps in [from, to) local time.
+// Zero values mean unbounded on that side.
+func ApplyRange(data usage.Data, from, to time.Time) usage.Data {
 	if from.IsZero() && to.IsZero() {
 		return data
 	}
-
 	inRange := func(t time.Time) bool {
 		t = t.Local()
 		if !from.IsZero() && t.Before(from) {
@@ -144,4 +151,35 @@ func (p FilterPreset) Apply(data usage.Data) usage.Data {
 		}
 	}
 	return out
+}
+
+// ParseRange accepts "YYYY-MM-DD" (single day) or "YYYY-MM-DD:YYYY-MM-DD"
+// (inclusive range) in local time and returns the [from, to) half-open window.
+func ParseRange(s string, loc *time.Location) (from, to time.Time, err error) {
+	if loc == nil {
+		loc = time.Local
+	}
+	parts := strings.SplitN(s, ":", 2)
+	fromStr := strings.TrimSpace(parts[0])
+	if fromStr == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("range cannot be empty")
+	}
+	from, err = time.ParseInLocation("2006-01-02", fromStr, loc)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid from date %q: %w", fromStr, err)
+	}
+	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+		toStr := strings.TrimSpace(parts[1])
+		to, err = time.ParseInLocation("2006-01-02", toStr, loc)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid to date %q: %w", toStr, err)
+		}
+		to = to.AddDate(0, 0, 1)
+	} else {
+		to = from.AddDate(0, 0, 1)
+	}
+	if to.Before(from) {
+		return time.Time{}, time.Time{}, fmt.Errorf("to (%s) is before from (%s)", to, from)
+	}
+	return from, to, nil
 }

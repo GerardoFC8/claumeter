@@ -24,7 +24,10 @@ func newActivityTable(r stats.Report) table.Model {
 	for _, m := range r.Models {
 		cols = append(cols, table.Column{Title: shortModel(m), Width: 11})
 	}
-	cols = append(cols, table.Column{Title: "Total", Width: 12})
+	cols = append(cols,
+		table.Column{Title: "Tokens", Width: 10},
+		table.Column{Title: "Cost", Width: 9},
+	)
 
 	rows := make([]table.Row, 0, len(r.ByDay)+2)
 	for _, d := range r.ByDay {
@@ -41,7 +44,7 @@ func newActivityTable(r stats.Report) table.Model {
 				row = append(row, compactNumber(t.GrandTotal()))
 			}
 		}
-		row = append(row, compactNumber(d.Totals.GrandTotal()))
+		row = append(row, compactNumber(d.Totals.GrandTotal()), formatCost(d.Totals.Cost))
 		rows = append(rows, row)
 	}
 
@@ -67,7 +70,10 @@ func newActivityTable(r stats.Report) table.Model {
 			}
 			totalRow = append(totalRow, compactNumber(modelTotal))
 		}
-		totalRow = append(totalRow, compactNumber(r.Overall.GrandTotal()))
+		totalRow = append(totalRow,
+			compactNumber(r.Overall.GrandTotal()),
+			formatCost(r.Overall.Cost),
+		)
 		rows = append(rows, totalRow)
 	}
 
@@ -81,9 +87,9 @@ func newSessionsTable(r stats.Report) table.Model {
 		{Title: "Duration", Width: 9},
 		{Title: "Prompts", Width: 8},
 		{Title: "Turns", Width: 7},
-		{Title: "Project", Width: 28},
-		{Title: "Models", Width: 7},
-		{Title: "Total tok.", Width: 13},
+		{Title: "Project", Width: 26},
+		{Title: "Tokens", Width: 11},
+		{Title: "Cost", Width: 9},
 	}
 	rows := make([]table.Row, 0, len(r.BySession))
 	for _, s := range r.BySession {
@@ -94,9 +100,9 @@ func newSessionsTable(r stats.Report) table.Model {
 			formatDuration(dur),
 			humanNumber(s.Totals.Prompts),
 			humanNumber(s.Totals.Turns),
-			truncate(shortenPath(s.Cwd), 28),
-			humanNumber(len(s.Models)),
-			humanNumber(s.Totals.GrandTotal()),
+			truncate(shortenPath(s.Cwd), 26),
+			compactNumber(s.Totals.GrandTotal()),
+			formatCost(s.Totals.Cost),
 		})
 	}
 	return makeTable(cols, rows)
@@ -104,24 +110,26 @@ func newSessionsTable(r stats.Report) table.Model {
 
 func newProjectsTable(r stats.Report) table.Model {
 	cols := []table.Column{
-		{Title: "Project", Width: 46},
+		{Title: "Project", Width: 42},
 		{Title: "Prompts", Width: 8},
 		{Title: "Turns", Width: 8},
-		{Title: "Input", Width: 12},
-		{Title: "Cache rd.", Width: 13},
-		{Title: "Output", Width: 12},
-		{Title: "Total", Width: 14},
+		{Title: "Input", Width: 11},
+		{Title: "Cache rd.", Width: 11},
+		{Title: "Output", Width: 10},
+		{Title: "Tokens", Width: 11},
+		{Title: "Cost", Width: 10},
 	}
 	rows := make([]table.Row, 0, len(r.ByProject))
 	for _, p := range r.ByProject {
 		rows = append(rows, table.Row{
-			truncate(p.Cwd, 46),
+			truncate(p.Cwd, 42),
 			humanNumber(p.Totals.Prompts),
 			humanNumber(p.Totals.Turns),
-			humanNumber(p.Totals.InputTokens),
-			humanNumber(p.Totals.CacheReadTokens),
-			humanNumber(p.Totals.OutputTokens),
-			humanNumber(p.Totals.GrandTotal()),
+			compactNumber(p.Totals.InputTokens),
+			compactNumber(p.Totals.CacheReadTokens),
+			compactNumber(p.Totals.OutputTokens),
+			compactNumber(p.Totals.GrandTotal()),
+			formatCost(p.Totals.Cost),
 		})
 	}
 	return makeTable(cols, rows)

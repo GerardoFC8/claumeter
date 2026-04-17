@@ -129,17 +129,19 @@ func parseFile(path string) (Data, error) {
 				continue
 			}
 			out.Events = append(out.Events, Event{
-				Timestamp:           raw.Timestamp,
-				Model:               msg.Model,
-				SessionID:           raw.SessionID,
-				Cwd:                 raw.Cwd,
-				Version:             raw.Version,
-				GitBranch:           raw.GitBranch,
-				InputTokens:         msg.Usage.InputTokens,
-				OutputTokens:        msg.Usage.OutputTokens,
-				CacheCreationTokens: msg.Usage.CacheCreationInputTokens,
-				CacheReadTokens:     msg.Usage.CacheReadInputTokens,
-				ServiceTier:         msg.Usage.ServiceTier,
+				Timestamp:             raw.Timestamp,
+				Model:                 msg.Model,
+				SessionID:             raw.SessionID,
+				Cwd:                   raw.Cwd,
+				Version:               raw.Version,
+				GitBranch:             raw.GitBranch,
+				InputTokens:           msg.Usage.InputTokens,
+				OutputTokens:          msg.Usage.OutputTokens,
+				CacheCreationTokens:   msg.Usage.CacheCreationInputTokens,
+				CacheCreation5mTokens: msg.Usage.CacheCreation.Ephemeral5m,
+				CacheCreation1hTokens: msg.Usage.CacheCreation.Ephemeral1h,
+				CacheReadTokens:       msg.Usage.CacheReadInputTokens,
+				ServiceTier:           msg.Usage.ServiceTier,
 			})
 			for _, item := range msg.Content {
 				if item.Type != "tool_use" {

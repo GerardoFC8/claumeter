@@ -65,6 +65,21 @@ func shortSession(id string) string {
 	return id[:8]
 }
 
+func formatCost(c float64) string {
+	switch {
+	case c == 0:
+		return "—"
+	case c < 0.01:
+		return "<$0.01"
+	case c < 10:
+		return fmt.Sprintf("$%.2f", c)
+	case c < 10000:
+		return fmt.Sprintf("$%.0f", c)
+	default:
+		return fmt.Sprintf("$%.1fK", c/1000)
+	}
+}
+
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))

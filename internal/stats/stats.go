@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/GerardoFC8/claumeter/internal/pricing"
 	"github.com/GerardoFC8/claumeter/internal/usage"
 )
 
@@ -14,6 +15,7 @@ type Totals struct {
 	CacheReadTokens     int
 	Turns               int
 	Prompts             int
+	Cost                float64 // USD, summed per-event
 }
 
 func (t Totals) TotalInput() int { return t.InputTokens + t.CacheCreationTokens + t.CacheReadTokens }
@@ -24,8 +26,27 @@ func (t *Totals) addEvent(e usage.Event) {
 	t.CacheCreationTokens += e.CacheCreationTokens
 	t.CacheReadTokens += e.CacheReadTokens
 	t.Turns++
+	t.Cost += costForEvent(e)
 }
 func (t *Totals) addPrompt() { t.Prompts++ }
+
+// costForEvent: if the JSONL lacks the 5m/1h breakdown, treat all
+// cache-creation tokens as 1h (upper bound, the dominant pattern in Claude
+// Code sessions).
+func costForEvent(e usage.Event) float64 {
+	u := pricing.Usage{
+		InputTokens:     e.InputTokens,
+		CacheReadTokens: e.CacheReadTokens,
+		OutputTokens:    e.OutputTokens,
+	}
+	if e.CacheCreation5mTokens+e.CacheCreation1hTokens == 0 {
+		u.CacheCreation1hTokens = e.CacheCreationTokens
+	} else {
+		u.CacheCreation5mTokens = e.CacheCreation5mTokens
+		u.CacheCreation1hTokens = e.CacheCreation1hTokens
+	}
+	return pricing.Cost(e.Model, u)
+}
 
 type DayStat struct {
 	Day     string

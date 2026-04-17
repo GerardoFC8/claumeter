@@ -1,14 +1,9 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
-
-	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/GerardoFC8/claumeter/internal/tui"
-	"github.com/GerardoFC8/claumeter/internal/usage"
+	"strings"
 )
 
 var (
@@ -17,29 +12,56 @@ var (
 	date    = "unknown"
 )
 
+const helpText = `claumeter — interactive TUI for Claude Code token usage
+
+USAGE:
+  claumeter [flags]                       Launch the interactive TUI (default).
+  claumeter today   [--json] [--root P]   Compact summary for today.
+  claumeter week    [--json] [--root P]   Compact summary for this week.
+  claumeter range <from[:to]> [--json]    Compact summary for a date range.
+                                          Dates are YYYY-MM-DD in local time.
+  claumeter export --format=<fmt> [...]   Dump full report. Formats: json, csv, markdown.
+  claumeter version                       Print version and exit.
+  claumeter help                          Show this help.
+
+EXAMPLES:
+  claumeter today
+  claumeter week --json
+  claumeter range 2026-04-01:2026-04-17
+  claumeter export --format=json -o usage.json
+  claumeter export --format=csv --range last-7d
+  claumeter --root /other/path          # TUI pointing at a different root
+`
+
 func main() {
-	defaultRoot, err := usage.DefaultProjectsDir()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	if len(os.Args) >= 2 {
+		arg := os.Args[1]
+		if !strings.HasPrefix(arg, "-") {
+			switch arg {
+			case "today", "week":
+				runCompact(arg, "", os.Args[2:])
+				return
+			case "range":
+				runRange(os.Args[2:])
+				return
+			case "export":
+				runExport(os.Args[2:])
+				return
+			case "version":
+				printVersion()
+				return
+			case "help":
+				fmt.Print(helpText)
+				return
+			default:
+				fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", arg, helpText)
+				os.Exit(2)
+			}
+		}
 	}
-	root := flag.String("root", defaultRoot, "directory with Claude Code JSONL transcripts")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+	runTUI(os.Args[1:])
+}
 
-	if *showVersion {
-		fmt.Printf("claumeter %s (commit %s, built %s)\n", version, commit, date)
-		return
-	}
-
-	if _, err := os.Stat(*root); err != nil {
-		fmt.Fprintf(os.Stderr, "cannot access %s: %v\n", *root, err)
-		os.Exit(1)
-	}
-
-	p := tea.NewProgram(tui.New(*root), tea.WithAltScreen(), tea.WithMouseCellMotion())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+func printVersion() {
+	fmt.Printf("claumeter %s (commit %s, built %s)\n", version, commit, date)
 }
