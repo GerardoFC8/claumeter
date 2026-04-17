@@ -21,6 +21,7 @@ USAGE:
   claumeter range <from[:to]> [--json]    Compact summary for a date range.
                                           Dates are YYYY-MM-DD in local time.
   claumeter export --format=<fmt> [...]   Dump full report. Formats: json, csv, markdown.
+  claumeter serve [--port N] [--token T]  HTTP daemon exposing /today /stats /range /session.
   claumeter version                       Print version and exit.
   claumeter help                          Show this help.
 
@@ -30,6 +31,7 @@ EXAMPLES:
   claumeter range 2026-04-01:2026-04-17
   claumeter export --format=json -o usage.json
   claumeter export --format=csv --range last-7d
+  claumeter serve --port 7777
   claumeter --root /other/path          # TUI pointing at a different root
 `
 
@@ -46,6 +48,9 @@ func main() {
 				return
 			case "export":
 				runExport(os.Args[2:])
+				return
+			case "serve":
+				runServe(os.Args[2:])
 				return
 			case "version":
 				printVersion()

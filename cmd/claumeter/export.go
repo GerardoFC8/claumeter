@@ -74,32 +74,14 @@ func runExport(args []string) {
 // resolveRange maps a --range argument to either a FilterPreset (custom=false)
 // or an explicit [from, to) window (custom=true). It also returns a human label.
 func resolveRange(arg string) (label string, from, to time.Time, preset stats.FilterPreset, custom bool, err error) {
-	arg = strings.TrimSpace(strings.ToLower(arg))
-	switch arg {
-	case "", "all", "all-time":
-		return "All time", time.Time{}, time.Time{}, stats.FilterAll, false, nil
-	case "today":
-		preset = stats.FilterToday
-	case "yesterday":
-		preset = stats.FilterYesterday
-	case "last-7d", "last7d", "week7", "7d":
-		preset = stats.FilterLast7Days
-	case "last-30d", "last30d", "30d":
-		preset = stats.FilterLast30Days
-	case "last-90d", "last90d", "90d":
-		preset = stats.FilterLast90Days
-	case "this-week", "week":
-		preset = stats.FilterThisWeek
-	case "this-month", "month":
-		preset = stats.FilterThisMonth
-	default:
-		f, t, perr := stats.ParseRange(arg, time.Local)
-		if perr != nil {
-			return "", time.Time{}, time.Time{}, 0, false, perr
-		}
-		label = fmt.Sprintf("%s → %s", f.Format("2006-01-02"), t.AddDate(0, 0, -1).Format("2006-01-02"))
-		return label, f, t, 0, true, nil
+	if p, ok := stats.ResolvePreset(arg); ok {
+		from, to = p.Range(time.Now())
+		return p.Label(), from, to, p, false, nil
 	}
-	from, to = preset.Range(time.Now())
-	return preset.Label(), from, to, preset, false, nil
+	f, t, perr := stats.ParseRange(strings.TrimSpace(arg), time.Local)
+	if perr != nil {
+		return "", time.Time{}, time.Time{}, 0, false, perr
+	}
+	label = fmt.Sprintf("%s → %s", f.Format("2006-01-02"), t.AddDate(0, 0, -1).Format("2006-01-02"))
+	return label, f, t, 0, true, nil
 }

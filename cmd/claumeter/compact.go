@@ -7,28 +7,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/GerardoFC8/claumeter/internal/export"
 	"github.com/GerardoFC8/claumeter/internal/stats"
 	"github.com/GerardoFC8/claumeter/internal/usage"
 )
-
-type compactPayload struct {
-	Range    string  `json:"range"`
-	From     string  `json:"from,omitempty"`
-	To       string  `json:"to,omitempty"`
-	Prompts  int     `json:"prompts"`
-	Turns    int     `json:"turns"`
-	Tokens   int     `json:"tokens"`
-	Cost     float64 `json:"cost_usd"`
-	TopModel string  `json:"top_model,omitempty"`
-	ByModel  []byModelEntry `json:"by_model,omitempty"`
-}
-
-type byModelEntry struct {
-	Model  string  `json:"model"`
-	Turns  int     `json:"turns"`
-	Tokens int     `json:"tokens"`
-	Cost   float64 `json:"cost_usd"`
-}
 
 // runCompact handles `today` and `week`.
 func runCompact(cmd, _ string, args []string) {
@@ -90,52 +72,20 @@ func runRange(args []string) {
 }
 
 func writeCompact(label string, from, to time.Time, r stats.Report, asJSON bool) {
-	topModel := ""
-	if len(r.ByModel) > 0 {
-		topModel = r.ByModel[0].Model
-	}
+	payload := export.NewCompact(label, from, to, r)
 	if asJSON {
-		payload := compactPayload{
-			Range:    label,
-			Prompts:  r.Overall.Prompts,
-			Turns:    r.Overall.Turns,
-			Tokens:   r.Overall.GrandTotal(),
-			Cost:     round2(r.Overall.Cost),
-			TopModel: topModel,
-		}
-		if !from.IsZero() {
-			payload.From = from.Format(time.RFC3339)
-		}
-		if !to.IsZero() {
-			payload.To = to.Format(time.RFC3339)
-		}
-		for _, m := range r.ByModel {
-			payload.ByModel = append(payload.ByModel, byModelEntry{
-				Model:  m.Model,
-				Turns:  m.Totals.Turns,
-				Tokens: m.Totals.GrandTotal(),
-				Cost:   round2(m.Totals.Cost),
-			})
-		}
 		out, _ := json.MarshalIndent(payload, "", "  ")
 		fmt.Println(string(out))
 		return
 	}
 	line := fmt.Sprintf("%s: %d prompts · %d turns · %s tokens · $%.2f",
-		label,
-		r.Overall.Prompts,
-		r.Overall.Turns,
-		compactInt(r.Overall.GrandTotal()),
-		r.Overall.Cost,
+		payload.Range, payload.Prompts, payload.Turns,
+		compactInt(payload.Tokens), payload.Cost,
 	)
-	if topModel != "" {
-		line += " (" + topModel + ")"
+	if payload.TopModel != "" {
+		line += " (" + payload.TopModel + ")"
 	}
 	fmt.Println(line)
-}
-
-func round2(f float64) float64 {
-	return float64(int64(f*100+0.5)) / 100
 }
 
 func compactInt(n int) string {

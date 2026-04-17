@@ -105,6 +105,30 @@ func (p FilterPreset) Range(now time.Time) (time.Time, time.Time) {
 	return time.Time{}, time.Time{}
 }
 
+// ResolvePreset maps common range aliases (today, last-7d, this-month, ...)
+// to a FilterPreset. Returns false if the alias is unknown.
+func ResolvePreset(name string) (FilterPreset, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "all", "all-time":
+		return FilterAll, true
+	case "today":
+		return FilterToday, true
+	case "yesterday":
+		return FilterYesterday, true
+	case "last-7d", "last7d", "7d":
+		return FilterLast7Days, true
+	case "last-30d", "last30d", "30d":
+		return FilterLast30Days, true
+	case "last-90d", "last90d", "90d":
+		return FilterLast90Days, true
+	case "this-week", "week":
+		return FilterThisWeek, true
+	case "this-month", "month":
+		return FilterThisMonth, true
+	}
+	return 0, false
+}
+
 func (p FilterPreset) Apply(data usage.Data) usage.Data {
 	if p == FilterAll {
 		return data
