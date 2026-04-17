@@ -1,0 +1,24 @@
+# Binaries
+/claumeter
+/claude-tui
+*.exe
+*.test
+*.out
+
+# Go build artifacts
+/bin/
+/dist/
+vendor/
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Private ideation (PRD, roadmap drafts)
+/docs/
