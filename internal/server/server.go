@@ -63,14 +63,11 @@ type Options struct {
 }
 
 type Server struct {
-	store *Server_Store // alias below for external reuse of *Store
-	opts  Options
-	http  *http.Server
+	store  *Store
+	broker *Broker
+	opts   Options
+	http   *http.Server
 }
-
-// Server_Store is a type alias so callers can pre-build the store (e.g. to
-// share with a file-watch loop).
-type Server_Store = Store
 
 func New(opts Options) (*Server, error) {
 	store, err := NewStore(opts.Root)
@@ -81,13 +78,14 @@ func New(opts Options) (*Server, error) {
 }
 
 func NewWithStore(opts Options, store *Store) *Server {
-	s := &Server{store: store, opts: opts}
+	s := &Server{store: store, opts: opts, broker: NewBroker()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /today", s.today)
 	mux.HandleFunc("GET /stats", s.stats)
 	mux.HandleFunc("GET /range", s.rangeHandler)
 	mux.HandleFunc("GET /session/{id}", s.session)
+	mux.HandleFunc("GET /live", s.live)
 	s.http = &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.auth(withLogging(mux)),
@@ -96,7 +94,8 @@ func NewWithStore(opts Options, store *Store) *Server {
 	return s
 }
 
-func (s *Server) Store() *Store { return s.store }
+func (s *Server) Store() *Store   { return s.store }
+func (s *Server) Broker() *Broker { return s.broker }
 
 // ListenAndServe runs until the context is cancelled or the server errors.
 func (s *Server) ListenAndServe(ctx context.Context) error {
@@ -195,6 +194,63 @@ func (s *Server) rangeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = export.ToJSON(w, label, from, to, report)
+}
+
+func (s *Server) live(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	if snap, err := todaySnapshot(s.store); err == nil {
+		fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", snap)
+		flusher.Flush()
+	}
+
+	ch := s.broker.Subscribe()
+	defer s.broker.Unsubscribe(ch)
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: update\ndata: %s\n\n", msg)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+// PublishToday computes a fresh `today` payload and pushes it to SSE
+// subscribers. Called by the file-watch feeder after a reload.
+func (s *Server) PublishToday() {
+	msg, err := todaySnapshot(s.store)
+	if err != nil {
+		return
+	}
+	s.broker.Publish(msg)
+}
+
+func todaySnapshot(store *Store) ([]byte, error) {
+	filtered := stats.FilterToday.Apply(store.Data())
+	report := stats.Build(filtered)
+	from, to := stats.FilterToday.Range(time.Now())
+	payload := export.NewCompact(stats.FilterToday.Label(), from, to, report)
+	return json.Marshal(payload)
 }
 
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {

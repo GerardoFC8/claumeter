@@ -4,12 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/GerardoFC8/claumeter/internal/server"
 	"github.com/GerardoFC8/claumeter/internal/usage"
+	"github.com/GerardoFC8/claumeter/internal/watch"
 )
 
 func runServe(args []string) {
@@ -43,14 +45,39 @@ func runServe(args []string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// File-watch for live updates. Non-fatal: if the watcher fails we still
+	// serve static snapshots — just no SSE push.
+	watcher, werr := watch.New(*root)
+	if werr != nil {
+		log.Printf("warning: file-watch disabled (%v); /live will only keepalive", werr)
+	} else {
+		defer watcher.Close()
+		go runLiveFeed(ctx, watcher, srv)
+	}
+
 	fmt.Printf("claumeter %s serving %s on http://%s\n", version, *root, addr)
 	if *token != "" {
 		fmt.Println("auth: Bearer token required on every request except /healthz")
+	}
+	if watcher != nil {
+		fmt.Println("file-watch: enabled (SSE /live will push updates)")
 	}
 	fmt.Println("press ctrl+c to stop")
 
 	if err := srv.ListenAndServe(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
+	}
+}
+
+// runLiveFeed reloads the store after every debounced filesystem event and
+// publishes a fresh `today` payload to SSE subscribers.
+func runLiveFeed(ctx context.Context, watcher *watch.Watcher, srv *server.Server) {
+	for range watcher.Events(ctx) {
+		if err := srv.Store().Reload(); err != nil {
+			log.Printf("reload error: %v", err)
+			continue
+		}
+		srv.PublishToday()
 	}
 }
