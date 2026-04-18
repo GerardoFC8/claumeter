@@ -2,7 +2,7 @@
     "id": "claumeter",
     "name": "claumeter",
     "description": "Claude Code token usage and cost in your DankBar",
-    "version": "1.0.0",
+    "version": "0.4.0",
     "license": "MIT",
     "author": "Gerardo Franco",
     "icon": "monitoring",
