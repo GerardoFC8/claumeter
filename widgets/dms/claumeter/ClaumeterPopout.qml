@@ -66,9 +66,7 @@ PopoutComponent {
             spacing: Theme.spacingXS
 
             Repeater {
-                model: dataRef && dataRef.richMode
-                       ? [{ key: 0, label: "Overview" }, { key: 1, label: "Activity" }, { key: 2, label: "Sessions" }]
-                       : [{ key: 0, label: "Overview" }]
+                model: [{ key: 0, label: "Overview" }, { key: 1, label: "Activity" }, { key: 2, label: "Sessions" }]
 
                 Rectangle {
                     id: tabBtn

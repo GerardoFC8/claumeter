@@ -107,15 +107,23 @@ Item {
         xhr.send()
     }
 
-    // ------------------------------------------------------------------ rich mode fetch: /stats
+    // ------------------------------------------------------------------ fetch stats (rich + degraded)
+    readonly property var _validRanges: ["today", "last-7d", "last-30d", "all"]
+
     function fetchStats(range) {
         // NOTE: we fetch /stats for EVERY range, including "today". The
         // compact /today payload drives the rapid 3s pill poll (lightweight),
         // but Activity and Sessions tabs need the full by_day / by_session
         // structure, which only /stats returns.
+        if (_validRanges.indexOf(range) < 0) return
         const labels = { "today": "Today", "last-7d": "Last 7 days", "last-30d": "Last 30 days", "all": "All time" }
         root.currentRange = range
         root.rangeLabel = labels[range] || range
+
+        if (!root.richMode) {
+            fetchStatsDegraded(range)
+            return
+        }
 
         const xhr = new XMLHttpRequest()
         xhr.open("GET", "http://127.0.0.1:7777/stats?range=" + range, true)
@@ -136,6 +144,18 @@ Item {
         xhr.onerror   = function () { root.loadError = "network error: /stats" }
         xhr.ontimeout = function () { root.loadError = "timeout: /stats" }
         xhr.send()
+    }
+
+    // Degraded mode stats: shells out to `claumeter export --format=json --range=X`
+    // which returns the same shape as the /stats endpoint. Runs for every
+    // range (including "today") so Activity/Sessions tabs have by_day /
+    // by_session data; OverviewTab still uses the lighter todayData for
+    // the pill numbers when range === "today".
+    function fetchStatsDegraded(range) {
+        statsProcess.rangeArg = range
+        if (!statsProcess.running) {
+            statsProcess.running = true
+        }
     }
 
     // ------------------------------------------------------------------ degraded mode: process
@@ -165,9 +185,39 @@ Item {
         }
     }
 
+    Process {
+        id: statsProcess
+        running: false
+        property string rangeArg: "last-7d"
+        command: ["sh", "-c", "export PATH=\"$HOME/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; claumeter export --format=json --range=" + rangeArg]
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    root.statsData = JSON.parse(text)
+                    root.loadError = ""
+                } catch (e) {
+                    root.loadError = "parse error: stats"
+                }
+            }
+        }
+
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (text && text.length > 0) {
+                    root.loadError = "claumeter stats: " + text.trim()
+                }
+            }
+        }
+    }
+
     function refreshDegraded() {
         if (!claumeterProcess.running) {
             claumeterProcess.running = true
+        }
+        if (root.currentRange !== "today" && !statsProcess.running) {
+            statsProcess.rangeArg = root.currentRange
+            statsProcess.running = true
         }
     }
 
@@ -199,5 +249,12 @@ Item {
         repeat: true
         triggeredOnStart: true
         onTriggered: root.refreshDegraded()
+    }
+
+    Component.onCompleted: {
+        // Prime statsData for Activity/Sessions tabs even before the user
+        // touches a range chip. Only matters in degraded mode — if the daemon
+        // is up, probeHealth will overwrite via /stats shortly.
+        fetchStatsDegraded(root.currentRange)
     }
 }
