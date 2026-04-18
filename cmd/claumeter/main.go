@@ -22,6 +22,7 @@ USAGE:
                                           Dates are YYYY-MM-DD in local time.
   claumeter export --format=<fmt> [...]   Dump full report. Formats: json, csv, markdown.
   claumeter serve [--port N] [--token T]  HTTP daemon exposing /today /stats /range /session.
+  claumeter config <verb> [key] [value]   Manage the user config file (TOML).
   claumeter version                       Print version and exit.
   claumeter help                          Show this help.
 
@@ -32,6 +33,9 @@ EXAMPLES:
   claumeter export --format=json -o usage.json
   claumeter export --format=csv --range last-7d
   claumeter serve --port 7777
+  claumeter config show
+  claumeter config set theme light
+  claumeter config get daemon_port
   claumeter --root /other/path          # TUI pointing at a different root
 `
 
@@ -52,6 +56,8 @@ func main() {
 			case "serve":
 				runServe(os.Args[2:])
 				return
+			case "config":
+				os.Exit(runConfig(os.Args[2:]))
 			case "version":
 				printVersion()
 				return
