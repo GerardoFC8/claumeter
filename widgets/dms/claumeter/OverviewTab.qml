@@ -44,13 +44,14 @@ Item {
         if (range === "today" || !dataRef.statsData) {
             return dataRef.todayData ? (dataRef.todayData.by_model || []) : []
         }
-        // full payload: by_model is [{model, totals}]
+        // full payload: by_model is [{model, ...totals flattened}] — the Go
+        // server embeds TotalsDTO, so turns / cost_usd live at the top level.
         if (!dataRef.statsData.by_model) return []
         return dataRef.statsData.by_model.map(function(m) {
             return {
                 model: m.model,
-                turns: m.totals ? m.totals.turns : 0,
-                cost_usd: m.totals ? m.totals.cost_usd : 0
+                turns: m.turns || 0,
+                cost_usd: m.cost_usd || 0
             }
         })
     }

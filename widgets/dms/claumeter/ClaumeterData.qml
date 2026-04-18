@@ -61,9 +61,9 @@ Item {
                 _healthFailures = 0
                 if (!root.richMode) {
                     root.richMode = true
-                    // immediate data fetch in rich mode
+                    // immediate data fetch in rich mode: pill + full stats
                     fetchTodayRich()
-                    if (currentRange !== "today") fetchStats(currentRange)
+                    fetchStats(currentRange)
                 }
             } else {
                 _handleHealthFailure()
@@ -106,14 +106,11 @@ Item {
 
     // ------------------------------------------------------------------ rich mode fetch: /stats
     function fetchStats(range) {
-        if (range === "today") {
-            // today uses the compact payload already in todayData
-            root.statsData = null
-            root.currentRange = "today"
-            root.rangeLabel = "Today"
-            return
-        }
-        const labels = { "last-7d": "Last 7 days", "last-30d": "Last 30 days", "all": "All time" }
+        // NOTE: we fetch /stats for EVERY range, including "today". The
+        // compact /today payload drives the rapid 3s pill poll (lightweight),
+        // but Activity and Sessions tabs need the full by_day / by_session
+        // structure, which only /stats returns.
+        const labels = { "today": "Today", "last-7d": "Last 7 days", "last-30d": "Last 30 days", "all": "All time" }
         root.currentRange = range
         root.rangeLabel = labels[range] || range
 

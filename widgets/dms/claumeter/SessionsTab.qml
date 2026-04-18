@@ -11,11 +11,11 @@ Item {
 
     readonly property var sessions: {
         if (!dataRef || !dataRef.statsData || !dataRef.statsData.by_session) return []
+        // by_session is [{session_id, cwd, ...totals flattened}]. Go's
+        // embedded TotalsDTO flattens turns / cost_usd at the top level.
         const arr = dataRef.statsData.by_session.slice()
         arr.sort(function(a, b) {
-            const ca = a.totals ? a.totals.cost_usd : 0
-            const cb = b.totals ? b.totals.cost_usd : 0
-            return cb - ca
+            return (b.cost_usd || 0) - (a.cost_usd || 0)
         })
         return arr
     }
@@ -60,7 +60,7 @@ Item {
                             }
 
                             StyledText {
-                                text: "$" + ((modelData.totals && modelData.totals.cost_usd) ? modelData.totals.cost_usd.toFixed(2) : "0.00")
+                                text: "$" + (modelData.cost_usd || 0).toFixed(2)
                                 color: Theme.primary
                                 font.bold: true
                                 font.pixelSize: Theme.fontSizeMedium
@@ -102,7 +102,7 @@ Item {
             StyledText {
                 visible: root.sessions.length === 0
                 width: root.width
-                text: dataRef && dataRef.statsData ? "No session data." : "Select a range other than Today for session data."
+                text: dataRef && dataRef.statsData ? "No session data for this range." : "Loading sessions…"
                 color: Theme.surfaceVariantText
                 font.pixelSize: Theme.fontSizeMedium
                 wrapMode: Text.WordWrap

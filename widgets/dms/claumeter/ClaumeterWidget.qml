@@ -9,8 +9,10 @@ PluginComponent {
     id: root
 
     // ------------------------------------------------------------------ shared state
+    // NOTE: id must NOT be "data" — Item.data is the reserved default
+    // property holding child items, and it shadows the id binding.
     ClaumeterData {
-        id: data
+        id: store
     }
 
     // ------------------------------------------------------------------ bar pills
@@ -20,16 +22,16 @@ PluginComponent {
 
             DankIcon {
                 name: "monitoring"
-                color: data.loadError ? Theme.error : Theme.primary
+                color: store.loadError ? Theme.error : Theme.primary
                 size: Theme.iconSize - 4
                 anchors.verticalCenter: parent.verticalCenter
             }
 
             StyledText {
-                text: data.loadError
+                text: store.loadError
                       ? "\u2014"
-                      : "$" + data.cost.toFixed(2)
-                color: data.loadError ? Theme.error : Theme.surfaceText
+                      : "$" + store.cost.toFixed(2)
+                color: store.loadError ? Theme.error : Theme.surfaceText
                 font.pixelSize: Theme.fontSizeMedium
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -42,14 +44,14 @@ PluginComponent {
 
             DankIcon {
                 name: "monitoring"
-                color: data.loadError ? Theme.error : Theme.primary
+                color: store.loadError ? Theme.error : Theme.primary
                 size: Theme.iconSize - 4
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
             StyledText {
-                text: data.loadError ? "\u2014" : "$" + Math.round(data.cost)
-                color: data.loadError ? Theme.error : Theme.surfaceText
+                text: store.loadError ? "\u2014" : "$" + Math.round(store.cost)
+                color: store.loadError ? Theme.error : Theme.surfaceText
                 font.pixelSize: Theme.fontSizeSmall
                 anchors.horizontalCenter: parent.horizontalCenter
             }
@@ -62,7 +64,7 @@ PluginComponent {
 
     popoutContent: Component {
         ClaumeterPopout {
-            dataRef: data
+            dataRef: store
         }
     }
 }

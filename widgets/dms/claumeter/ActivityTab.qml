@@ -12,11 +12,11 @@ Item {
     // by_day sorted DESC by cost
     readonly property var days: {
         if (!dataRef || !dataRef.statsData || !dataRef.statsData.by_day) return []
+        // by_day is [{day, ...totals flattened, by_model: {model: totals}}].
+        // Go's embedded TotalsDTO flattens turns / cost_usd at the top level.
         const arr = dataRef.statsData.by_day.slice()
         arr.sort(function(a, b) {
-            const ca = a.totals ? a.totals.cost_usd : 0
-            const cb = b.totals ? b.totals.cost_usd : 0
-            return cb - ca
+            return (b.cost_usd || 0) - (a.cost_usd || 0)
         })
         return arr
     }
@@ -60,7 +60,7 @@ Item {
                             }
 
                             StyledText {
-                                text: "$" + ((modelData.totals && modelData.totals.cost_usd) ? modelData.totals.cost_usd.toFixed(2) : "0.00")
+                                text: "$" + (modelData.cost_usd || 0).toFixed(2)
                                 color: Theme.primary
                                 font.bold: true
                                 font.pixelSize: Theme.fontSizeMedium
@@ -107,7 +107,7 @@ Item {
             StyledText {
                 visible: root.days.length === 0
                 width: root.width
-                text: dataRef && dataRef.statsData ? "No activity data." : "Select a range other than Today for activity data."
+                text: dataRef && dataRef.statsData ? "No activity data for this range." : "Loading activity…"
                 color: Theme.surfaceVariantText
                 font.pixelSize: Theme.fontSizeMedium
                 wrapMode: Text.WordWrap
