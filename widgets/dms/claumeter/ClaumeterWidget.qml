@@ -40,7 +40,7 @@ PluginComponent {
         id: claumeterProcess
 
         running: false
-        command: ["claumeter", "today", "--format=json"]
+        command: ["sh", "-c", "export PATH=\"$HOME/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; claumeter today --format=json"]
 
         stdout: StdioCollector {
             onStreamFinished: {
@@ -86,7 +86,7 @@ PluginComponent {
             DankIcon {
                 name: "monitoring"
                 color: root.loadError ? Theme.error : Theme.primary
-                font.pixelSize: Theme.iconSize - 4
+                size: Theme.iconSize - 4
                 anchors.verticalCenter: parent.verticalCenter
             }
 
@@ -108,7 +108,7 @@ PluginComponent {
             DankIcon {
                 name: "monitoring"
                 color: root.loadError ? Theme.error : Theme.primary
-                font.pixelSize: Theme.iconSize - 4
+                size: Theme.iconSize - 4
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
