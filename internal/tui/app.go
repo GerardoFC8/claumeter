@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/GerardoFC8/claumeter/internal/config"
 	"github.com/GerardoFC8/claumeter/internal/stats"
 	"github.com/GerardoFC8/claumeter/internal/usage"
 )
@@ -61,19 +63,32 @@ type Model struct {
 	tblSess     table.Model
 	tblProj     table.Model
 
-	search searchState
+	search    searchState
+	themeName string // active theme name; kept in sync with currentTheme
 }
 
 func New(root string) Model {
+	return newModelWithTheme(root, "dark")
+}
+
+// NewWithTheme creates a Model with the given named theme pre-applied.
+// Valid names: "dark", "light", "high-contrast". Falls back to "dark".
+func NewWithTheme(root, themeName string) Model {
+	return newModelWithTheme(root, themeName)
+}
+
+func newModelWithTheme(root, themeName string) Model {
+	applyTheme(themeByName(themeName))
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(colorAccent)
 	return Model{
-		root:    root,
-		loading: true,
-		filter:  stats.FilterAll,
-		spin:    sp,
-		search:  newSearchState(),
+		root:      root,
+		loading:   true,
+		filter:    stats.FilterAll,
+		spin:      sp,
+		search:    newSearchState(),
+		themeName: currentTheme.Name,
 	}
 }
 
@@ -166,6 +181,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.rebuild()
 			}
 			return m, nil
+		case "t":
+			m.cycleTheme()
+			return m, nil
 		}
 
 	case loadedMsg:
@@ -210,6 +228,36 @@ func (m *Model) rebuild() {
 func (m *Model) rebuildFiltered() {
 	m.buildTablesWithQuery(m.search.query())
 	m.resizeTables()
+}
+
+// cycleTheme advances to the next theme in allThemes(), persists the choice,
+// and refreshes all style-dependent state. Safe to call even when loading.
+func (m *Model) cycleTheme() {
+	themes := allThemes()
+	idx := 0
+	for i, t := range themes {
+		if t.Name == m.themeName {
+			idx = i
+			break
+		}
+	}
+	next := themes[(idx+1)%len(themes)]
+	applyTheme(next)
+	m.themeName = next.Name
+
+	// Recreate spinner and search state so their baked-in colors are refreshed.
+	m.spin.Style = lipgloss.NewStyle().Foreground(colorAccent)
+	m.search = newSearchState()
+
+	// Persist the new theme; log to stderr on failure but keep it active.
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.Defaults()
+	}
+	cfg.Theme = next.Name
+	if err := config.Save(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "claumeter: could not save theme preference:", err)
+	}
 }
 
 func (m Model) View() string {
@@ -285,7 +333,7 @@ func (m Model) renderFooter() string {
 	if m.search.active {
 		keys = "enter=apply  esc=clear  ctrl+u=reset"
 	} else {
-		keys = "tab/h/l switch • 1-5 jump • f/F filter • / search • j/k ↑↓ • g/G top/bot • q quit"
+		keys = "tab/h/l switch • 1-5 jump • f/F filter • / search • t=theme • j/k ↑↓ • g/G top/bot • q quit"
 	}
 	return footerStyle.Width(m.width).Render(keys)
 }

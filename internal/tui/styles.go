@@ -2,6 +2,13 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
+// currentTheme is the active theme. All package-level style vars below are
+// reassigned by applyTheme() whenever the user cycles themes.
+// Initialised to dark (the original palette) to preserve existing behaviour.
+var currentTheme *Theme = &themeDark
+
+// Package-level color vars — referenced directly by overview.go and search.go.
+// These are reassigned by applyTheme(); do NOT treat them as constants.
 var (
 	colorPrimary  = lipgloss.Color("#7C3AED")
 	colorAccent   = lipgloss.Color("#22D3EE")
@@ -11,43 +18,49 @@ var (
 	colorFg       = lipgloss.Color("#E5E7EB")
 	colorFgDim    = lipgloss.Color("#9CA3AF")
 	colorSelected = lipgloss.Color("#1F2937")
-
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorPrimary).
-			Padding(0, 1)
-
-	tabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Foreground(colorFgDim)
-
-	tabActiveStyle = tabStyle.
-			Foreground(colorAccent).
-			Bold(true).
-			Underline(true)
-
-	headerBarStyle = lipgloss.NewStyle().
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder(), false, false, true, false).
-			BorderForeground(colorMuted)
-
-	footerStyle = lipgloss.NewStyle().
-			Foreground(colorMuted).
-			Padding(0, 1)
-
-	sectionStyle = lipgloss.NewStyle().
-			Padding(1, 2)
-
-	cardStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorMuted).
-			Margin(0, 1, 0, 0)
-
-	cardLabelStyle = lipgloss.NewStyle().Foreground(colorFgDim)
-	cardValueStyle = lipgloss.NewStyle().Foreground(colorFg).Bold(true)
-
-	accentStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	goodStyle   = lipgloss.NewStyle().Foreground(colorGood).Bold(true)
-	warnStyle   = lipgloss.NewStyle().Foreground(colorWarn).Bold(true)
 )
+
+// Package-level derived style vars — call sites in all other tui files use
+// these names directly; they are reassigned by applyTheme().
+var (
+	titleStyle     = themeDark.Title
+	tabStyle       = themeDark.Tab
+	tabActiveStyle = themeDark.TabActive
+	headerBarStyle = themeDark.HeaderBar
+	footerStyle    = themeDark.Footer
+	sectionStyle   = themeDark.Section
+	cardStyle      = themeDark.Card
+	cardLabelStyle = themeDark.CardLabel
+	cardValueStyle = themeDark.CardValue
+	accentStyle    = themeDark.Accent_
+	goodStyle      = themeDark.Good_
+	warnStyle      = themeDark.Warn_
+)
+
+// applyTheme switches currentTheme and reassigns every package-level style var.
+// Must be called before the next View() render.
+func applyTheme(t *Theme) {
+	currentTheme = t
+
+	colorPrimary  = t.Primary
+	colorAccent   = t.Accent
+	colorMuted    = t.Muted
+	colorGood     = t.Good
+	colorWarn     = t.Warn
+	colorFg       = t.Fg
+	colorFgDim    = t.FgDim
+	colorSelected = t.Selected
+
+	titleStyle     = t.Title
+	tabStyle       = t.Tab
+	tabActiveStyle = t.TabActive
+	headerBarStyle = t.HeaderBar
+	footerStyle    = t.Footer
+	sectionStyle   = t.Section
+	cardStyle      = t.Card
+	cardLabelStyle = t.CardLabel
+	cardValueStyle = t.CardValue
+	accentStyle    = t.Accent_
+	goodStyle      = t.Good_
+	warnStyle      = t.Warn_
+}
