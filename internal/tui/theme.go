@@ -29,6 +29,7 @@ type Theme struct {
 	Accent_   lipgloss.Style
 	Good_     lipgloss.Style
 	Warn_     lipgloss.Style
+	Error_    lipgloss.Style
 }
 
 func buildTheme(
@@ -86,6 +87,7 @@ func buildTheme(
 		Accent_: lipgloss.NewStyle().Foreground(accent).Bold(true),
 		Good_:   lipgloss.NewStyle().Foreground(good).Bold(true),
 		Warn_:   lipgloss.NewStyle().Foreground(warn).Bold(true),
+		Error_:  lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Bold(true),
 	}
 }
 

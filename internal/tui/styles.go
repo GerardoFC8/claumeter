@@ -35,6 +35,7 @@ var (
 	accentStyle    = themeDark.Accent_
 	goodStyle      = themeDark.Good_
 	warnStyle      = themeDark.Warn_
+	errorStyle     = themeDark.Error_
 )
 
 // applyTheme switches currentTheme and reassigns every package-level style var.
@@ -63,4 +64,5 @@ func applyTheme(t *Theme) {
 	accentStyle    = t.Accent_
 	goodStyle      = t.Good_
 	warnStyle      = t.Warn_
+	errorStyle     = t.Error_
 }

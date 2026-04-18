@@ -40,7 +40,7 @@ func runTUI(args []string) {
 		cfg = config.Defaults()
 	}
 
-	p := tea.NewProgram(tui.NewWithTheme(*root, cfg.Theme), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(tui.NewWithConfig(*root, cfg.Theme, cfg.Plan), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

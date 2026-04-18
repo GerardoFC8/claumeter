@@ -8,6 +8,9 @@ import qs.Common
 //   currentRange    - string: "today" | "last-7d" | "last-30d" | "all"
 //   rangeLabel      - string: human label for current range
 //   todayData       - object: compact /today payload
+// TODO(v0.8.0): add quotaData property sourced from GET /quota on the daemon.
+//   Shape: { plan, configured, limit_messages, window_seconds, used_in_window, used_pct, reset_in_seconds }
+//   Poll every 60s; display a quota pill in the Quickshell widget when configured=true.
 //   statsData       - object: full /stats payload (null when range == today)
 //   loadError       - string: last error message (empty = ok)
 Item {

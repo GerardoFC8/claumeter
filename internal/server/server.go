@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/GerardoFC8/claumeter/internal/config"
 	"github.com/GerardoFC8/claumeter/internal/export"
+	"github.com/GerardoFC8/claumeter/internal/quota"
 	"github.com/GerardoFC8/claumeter/internal/stats"
 	"github.com/GerardoFC8/claumeter/internal/usage"
 )
@@ -86,6 +88,7 @@ func NewWithStore(opts Options, store *Store) *Server {
 	mux.HandleFunc("GET /session/{id}", s.session)
 	mux.HandleFunc("GET /compare", s.compare)
 	mux.HandleFunc("GET /live", s.live)
+	mux.HandleFunc("GET /quota", s.quota)
 	s.http = &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.auth(withLogging(mux)),
@@ -315,6 +318,26 @@ func (s *Server) resolveAndApply(rangeParam string) (label string, from, to time
 	filtered = stats.ApplyRange(s.store.Data(), from, to)
 	label = fmt.Sprintf("%s → %s", from.Format("2006-01-02"), to.AddDate(0, 0, -1).Format("2006-01-02"))
 	return label, from, to, filtered, nil
+}
+
+func (s *Server) quota(w http.ResponseWriter, r *http.Request) {
+	plan := r.URL.Query().Get("plan")
+	if plan == "" {
+		cfg, _ := config.Load()
+		plan = cfg.Plan
+	}
+	status := quota.Compute(s.store.Data(), plan, time.Now())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"plan":             status.Plan,
+		"configured":       status.Configured,
+		"limit_messages":   status.Limit.MessagesPerWindow,
+		"window_seconds":   int(status.Window.Seconds()),
+		"used_in_window":   status.UsedInWindow,
+		"used_pct":         status.UsedPct,
+		"reset_in_seconds": int(status.ResetIn.Seconds()),
+		"at":               status.At,
+		"description":      status.Limit.Description,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

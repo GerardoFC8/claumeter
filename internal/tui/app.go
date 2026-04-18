@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/GerardoFC8/claumeter/internal/config"
+	"github.com/GerardoFC8/claumeter/internal/quota"
 	"github.com/GerardoFC8/claumeter/internal/stats"
 	"github.com/GerardoFC8/claumeter/internal/usage"
 )
@@ -68,19 +69,28 @@ type Model struct {
 	themeName     string             // active theme name; kept in sync with currentTheme
 	detailMode    bool
 	detailSession stats.SessionDetail
+
+	plan        string       // active Claude plan name; "" means unset, no quota UI shown
+	quotaStatus quota.Status // recomputed in rebuild()
 }
 
 func New(root string) Model {
-	return newModelWithTheme(root, "dark")
+	return newModelWithTheme(root, "dark", "")
 }
 
 // NewWithTheme creates a Model with the given named theme pre-applied.
 // Valid names: "dark", "light", "high-contrast". Falls back to "dark".
 func NewWithTheme(root, themeName string) Model {
-	return newModelWithTheme(root, themeName)
+	return newModelWithTheme(root, themeName, "")
 }
 
-func newModelWithTheme(root, themeName string) Model {
+// NewWithConfig creates a Model with theme and plan pre-applied.
+// plan is one of "pro", "max-5x", "max-20x", or "" (no quota UI).
+func NewWithConfig(root, themeName, plan string) Model {
+	return newModelWithTheme(root, themeName, plan)
+}
+
+func newModelWithTheme(root, themeName, plan string) Model {
 	applyTheme(themeByName(themeName))
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -92,6 +102,7 @@ func newModelWithTheme(root, themeName string) Model {
 		spin:      sp,
 		search:    newSearchState(),
 		themeName: currentTheme.Name,
+		plan:      plan,
 	}
 }
 
@@ -222,6 +233,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "t":
 			m.cycleTheme()
 			return m, nil
+		case "Q":
+			m.cyclePlan()
+			return m, nil
 		}
 
 	case loadedMsg:
@@ -257,6 +271,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) rebuild() {
 	filtered := m.filter.Apply(m.allData)
 	m.report = stats.Build(filtered)
+	m.quotaStatus = quota.Compute(m.allData, m.plan, time.Now())
 	m.buildTablesWithQuery(m.search.query())
 	m.resizeTables()
 }
@@ -295,6 +310,30 @@ func (m *Model) cycleTheme() {
 	cfg.Theme = next.Name
 	if err := config.Save(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "claumeter: could not save theme preference:", err)
+	}
+}
+
+// cyclePlan rotates through: pro -> max-5x -> max-20x -> "" -> pro.
+// Persists the choice via config.Save(); logs to stderr on failure.
+func (m *Model) cyclePlan() {
+	planRotation := []string{"pro", "max-5x", "max-20x", ""}
+	idx := 0
+	for i, p := range planRotation {
+		if p == m.plan {
+			idx = i
+			break
+		}
+	}
+	m.plan = planRotation[(idx+1)%len(planRotation)]
+	m.quotaStatus = quota.Compute(m.allData, m.plan, time.Now())
+
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.Defaults()
+	}
+	cfg.Plan = m.plan
+	if err := config.Save(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "claumeter: could not save plan preference:", err)
 	}
 }
 
@@ -344,17 +383,57 @@ func (m Model) renderHeader() string {
 	tabsRow := strings.Join(tabs, "")
 
 	filterTxt := m.renderFilterBadge()
+	quotaTxt := m.renderQuotaBadge()
 
 	left := lipgloss.JoinHorizontal(lipgloss.Left, title, "  ", tabsRow)
+
+	// right side: quota (if configured) + filter badge
+	var right string
+	if quotaTxt != "" {
+		right = quotaTxt + "  " + filterTxt
+	} else {
+		right = filterTxt
+	}
+
 	leftWidth := lipgloss.Width(left)
-	filterWidth := lipgloss.Width(filterTxt)
-	pad := m.width - leftWidth - filterWidth - 2
+	rightWidth := lipgloss.Width(right)
+	pad := m.width - leftWidth - rightWidth - 2
 	if pad < 1 {
 		pad = 1
 	}
 
-	row := left + strings.Repeat(" ", pad) + filterTxt
+	row := left + strings.Repeat(" ", pad) + right
 	return headerBarStyle.Width(m.width).Render(row)
+}
+
+// renderQuotaBadge returns a compact quota indicator for the header.
+// Returns "" when quota is not configured (plan == "").
+func (m Model) renderQuotaBadge() string {
+	s := m.quotaStatus
+	if !s.Configured {
+		return ""
+	}
+
+	var pctStyle lipgloss.Style
+	switch {
+	case s.UsedPct >= 80:
+		pctStyle = errorStyle
+	case s.UsedPct >= 50:
+		pctStyle = warnStyle
+	default:
+		pctStyle = goodStyle
+	}
+
+	tag := cardLabelStyle.Render("[" + s.Plan + "]")
+	usage := fmt.Sprintf("%d/%d", s.UsedInWindow, s.Limit.MessagesPerWindow)
+	pct := pctStyle.Render(fmt.Sprintf("(%.0f%%)", s.UsedPct))
+
+	var resetPart string
+	if s.ResetIn > 0 {
+		resetPart = cardLabelStyle.Render(" · resets in " + formatQuotaDurationTUI(s.ResetIn))
+	}
+
+	return tag + "  " + cardLabelStyle.Render(usage) + " " + pct + resetPart
 }
 
 func (m Model) renderFilterBadge() string {
@@ -377,9 +456,24 @@ func (m Model) renderFooter() string {
 	} else if m.search.active {
 		keys = "enter=apply  esc=clear  ctrl+u=reset"
 	} else {
-		keys = "tab/h/l switch • 1-5 jump • f/F filter • / search • t=theme • j/k ↑↓ • g/G top/bot • q quit"
+		keys = "tab/h/l switch • 1-5 jump • f/F filter • / search • t=theme • Q=plan • j/k ↑↓ • g/G top/bot • q quit"
 	}
 	return footerStyle.Width(m.width).Render(keys)
+}
+
+// formatQuotaDurationTUI renders a duration compactly for the TUI header.
+// Examples: "3h 12m", "45m", "1h".
+func formatQuotaDurationTUI(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h := int(d.Hours())
+	m := int(d.Minutes()) - h*60
+	if h == 0 {
+		return fmt.Sprintf("%dm", m)
+	}
+	if m == 0 {
+		return fmt.Sprintf("%dh", h)
+	}
+	return fmt.Sprintf("%dh %dm", h, m)
 }
 
 func (m Model) renderSearchBar() string {

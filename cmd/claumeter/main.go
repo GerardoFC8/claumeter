@@ -23,8 +23,9 @@ USAGE:
   claumeter compare <a> <b> [--json]      Compare two date ranges side by side.
                                           Each range can be a preset or YYYY-MM-DD[:YYYY-MM-DD].
   claumeter export --format=<fmt> [...]   Dump full report. Formats: json, csv, markdown.
-  claumeter serve [--port N] [--token T]  HTTP daemon exposing /today /stats /range /session /compare.
+  claumeter serve [--port N] [--token T]  HTTP daemon exposing /today /stats /range /session /compare /quota.
   claumeter config <verb> [key] [value]   Manage the user config file (TOML).
+  claumeter quota [--plan PLAN] [--json]  Estimated rate-limit status (pro, max-5x, max-20x).
   claumeter version                       Print version and exit.
   claumeter help                          Show this help.
 
@@ -64,6 +65,8 @@ func main() {
 				return
 			case "config":
 				os.Exit(runConfig(os.Args[2:]))
+			case "quota":
+				os.Exit(runQuota(os.Args[2:]))
 			case "version":
 				printVersion()
 				return
