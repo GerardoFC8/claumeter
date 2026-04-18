@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -59,6 +60,8 @@ type Model struct {
 	tblActivity table.Model
 	tblSess     table.Model
 	tblProj     table.Model
+
+	search searchState
 }
 
 func New(root string) Model {
@@ -70,6 +73,7 @@ func New(root string) Model {
 		loading: true,
 		filter:  stats.FilterAll,
 		spin:    sp,
+		search:  newSearchState(),
 	}
 }
 
@@ -86,9 +90,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Search mode captures most keys; only ctrl+c quits unconditionally.
+		if m.search.active {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "enter":
+				// Leave search mode, keep filter applied.
+				m.search.active = false
+				m.search.input.Blur()
+				m.rebuildFiltered()
+				return m, nil
+			case "esc":
+				// Leave search mode, clear filter.
+				m.search.active = false
+				m.search.input.SetValue("")
+				m.search.input.Blur()
+				m.rebuildFiltered()
+				return m, nil
+			case "ctrl+u":
+				// Clear input, stay in search mode.
+				m.search.input.SetValue("")
+				m.rebuildFiltered()
+				var cmd tea.Cmd
+				m.search.input, cmd = m.search.input.Update(msg)
+				return m, cmd
+			default:
+				var cmd tea.Cmd
+				m.search.input, cmd = m.search.input.Update(msg)
+				m.rebuildFiltered()
+				return m, cmd
+			}
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
+		case "/":
+			if !m.loading {
+				m.search.active = true
+				m.search.input.Focus()
+				return m, textinput.Blink
+			}
+			return m, nil
 		case "tab", "right", "l":
 			m.active = (m.active + 1) % tabCount
 			return m, nil
@@ -157,7 +201,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) rebuild() {
 	filtered := m.filter.Apply(m.allData)
 	m.report = stats.Build(filtered)
-	m.buildTables()
+	m.buildTablesWithQuery(m.search.query())
+	m.resizeTables()
+}
+
+// rebuildFiltered rebuilds only the tables using the current search query,
+// without re-running the full data pipeline (report stays intact).
+func (m *Model) rebuildFiltered() {
+	m.buildTablesWithQuery(m.search.query())
 	m.resizeTables()
 }
 
@@ -174,13 +225,18 @@ func (m Model) View() string {
 	header := m.renderHeader()
 	body := m.renderBody()
 	footer := m.renderFooter()
+	searchBar := m.renderSearchBar()
 
-	bodyHeight := m.height - lipgloss.Height(header) - lipgloss.Height(footer)
+	extraLines := lipgloss.Height(searchBar)
+	bodyHeight := m.height - lipgloss.Height(header) - lipgloss.Height(footer) - extraLines
 	if bodyHeight < 0 {
 		bodyHeight = 0
 	}
 	bodyBox := lipgloss.NewStyle().Height(bodyHeight).Width(m.width).Render(body)
 
+	if m.search.active || m.search.query() != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, header, bodyBox, searchBar, footer)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, bodyBox, footer)
 }
 
@@ -225,14 +281,33 @@ func (m Model) renderFilterBadge() string {
 }
 
 func (m Model) renderFooter() string {
-	keys := "tab/h/l switch • 1-5 jump • f/F filter • j/k ↑↓ • g/G top/bot • q quit"
+	var keys string
+	if m.search.active {
+		keys = "enter=apply  esc=clear  ctrl+u=reset"
+	} else {
+		keys = "tab/h/l switch • 1-5 jump • f/F filter • / search • j/k ↑↓ • g/G top/bot • q quit"
+	}
 	return footerStyle.Width(m.width).Render(keys)
+}
+
+func (m Model) renderSearchBar() string {
+	if !m.search.active && m.search.query() == "" {
+		return ""
+	}
+	return m.search.renderBar(m.width)
 }
 
 func (m Model) renderBody() string {
 	switch m.active {
 	case tabOverview:
-		return renderOverview(m.report, m.width)
+		body := renderOverview(m.report, m.width)
+		if m.search.query() != "" {
+			note := lipgloss.NewStyle().Foreground(colorMuted).Render(
+				"search applies to Activity / Sessions / Projects / Tools",
+			)
+			return lipgloss.JoinVertical(lipgloss.Left, body, note)
+		}
+		return body
 	case tabActivity:
 		return m.renderActivityBody()
 	case tabSessions:
@@ -240,7 +315,7 @@ func (m Model) renderBody() string {
 	case tabProjects:
 		return sectionStyle.Render(m.tblProj.View())
 	case tabTools:
-		return renderTools(m.report, m.width, m.height)
+		return renderTools(filterToolStats(m.report.Tools, m.search.query()), m.width, m.height)
 	}
 	return ""
 }
@@ -257,14 +332,11 @@ func (m *Model) resizeTables() {
 	if h < 5 {
 		h = 5
 	}
-	// Activity table shrinks to fit content.
+	// Activity table shrinks to fit content (filtered or unfiltered).
 	// bubbles/table's SetHeight includes the 2-line header — add +2 so the
 	// viewport actually shows all data rows.
 	const headerLines = 2
-	dataRows := len(m.report.ByDay)
-	if dataRows > 0 {
-		dataRows += 2 // separator + TOTAL
-	}
+	dataRows := len(m.tblActivity.Rows())
 	activityH := dataRows + headerLines
 	if activityH < headerLines+2 {
 		activityH = headerLines + 2

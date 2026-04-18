@@ -9,13 +9,17 @@ import (
 )
 
 func (m *Model) buildTables() {
-	m.tblActivity = newActivityTable(m.report)
-	m.tblSess = newSessionsTable(m.report)
-	m.tblProj = newProjectsTable(m.report)
+	m.buildTablesWithQuery("")
+}
+
+func (m *Model) buildTablesWithQuery(query string) {
+	m.tblActivity = newActivityTable(m.report, query)
+	m.tblSess = newSessionsTable(m.report, query)
+	m.tblProj = newProjectsTable(m.report, query)
 }
 
 // newActivityTable: matrix Day × Model with totals row at bottom.
-func newActivityTable(r stats.Report) table.Model {
+func newActivityTable(r stats.Report, query string) table.Model {
 	cols := []table.Column{
 		{Title: "Day", Width: 12},
 		{Title: "Prompts", Width: 8},
@@ -29,8 +33,10 @@ func newActivityTable(r stats.Report) table.Model {
 		table.Column{Title: "Cost", Width: 9},
 	)
 
-	rows := make([]table.Row, 0, len(r.ByDay)+2)
-	for _, d := range r.ByDay {
+	filteredDays := filterActivityRows(r.ByDay, query)
+
+	rows := make([]table.Row, 0, len(filteredDays)+2)
+	for _, d := range filteredDays {
 		row := table.Row{
 			d.Day,
 			humanNumber(d.Totals.Prompts),
@@ -48,7 +54,7 @@ func newActivityTable(r stats.Report) table.Model {
 		rows = append(rows, row)
 	}
 
-	if len(r.ByDay) > 0 {
+	if len(filteredDays) > 0 {
 		sep := make(table.Row, len(cols))
 		for i, c := range cols {
 			sep[i] = strings.Repeat("─", c.Width)
@@ -80,7 +86,7 @@ func newActivityTable(r stats.Report) table.Model {
 	return makeTable(cols, rows)
 }
 
-func newSessionsTable(r stats.Report) table.Model {
+func newSessionsTable(r stats.Report, query string) table.Model {
 	cols := []table.Column{
 		{Title: "Session", Width: 10},
 		{Title: "Started", Width: 16},
@@ -91,8 +97,9 @@ func newSessionsTable(r stats.Report) table.Model {
 		{Title: "Tokens", Width: 11},
 		{Title: "Cost", Width: 9},
 	}
-	rows := make([]table.Row, 0, len(r.BySession))
-	for _, s := range r.BySession {
+	filteredSessions := filterSessionRows(r.BySession, query)
+	rows := make([]table.Row, 0, len(filteredSessions))
+	for _, s := range filteredSessions {
 		dur := s.LastSeen.Sub(s.FirstSeen)
 		rows = append(rows, table.Row{
 			shortSession(s.SessionID),
@@ -108,7 +115,7 @@ func newSessionsTable(r stats.Report) table.Model {
 	return makeTable(cols, rows)
 }
 
-func newProjectsTable(r stats.Report) table.Model {
+func newProjectsTable(r stats.Report, query string) table.Model {
 	cols := []table.Column{
 		{Title: "Project", Width: 42},
 		{Title: "Prompts", Width: 8},
@@ -119,8 +126,9 @@ func newProjectsTable(r stats.Report) table.Model {
 		{Title: "Tokens", Width: 11},
 		{Title: "Cost", Width: 10},
 	}
-	rows := make([]table.Row, 0, len(r.ByProject))
-	for _, p := range r.ByProject {
+	filteredProjects := filterProjectRows(r.ByProject, query)
+	rows := make([]table.Row, 0, len(filteredProjects))
+	for _, p := range filteredProjects {
 		rows = append(rows, table.Row{
 			truncate(p.Cwd, 42),
 			humanNumber(p.Totals.Prompts),

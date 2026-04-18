@@ -9,12 +9,12 @@ import (
 	"github.com/GerardoFC8/claumeter/internal/stats"
 )
 
-func renderTools(r stats.Report, width, height int) string {
-	if r.Tools.Total == 0 {
+func renderTools(ts stats.ToolStats, width, height int) string {
+	if ts.Total == 0 {
 		return sectionStyle.Render("No tool usage in the current filter range.")
 	}
 
-	header := fmt.Sprintf("%s tool invocations", accentStyle.Render(humanNumber(r.Tools.Total)))
+	header := fmt.Sprintf("%s tool invocations", accentStyle.Render(humanNumber(ts.Total)))
 
 	// 2x2 grid
 	panelWidth := width/2 - 2
@@ -27,10 +27,10 @@ func renderTools(r stats.Report, width, height int) string {
 	}
 	itemsPerPanel := panelHeight - 2
 
-	topLeft := toolPanel("🔧 Built-in tools", r.Tools.Builtins, itemsPerPanel, panelWidth)
-	topRight := toolPanel("🧠 MCP — by server", r.Tools.Servers, itemsPerPanel, panelWidth)
-	botLeft := toolPanel("📚 Skills", r.Tools.Skills, itemsPerPanel, panelWidth)
-	botRight := toolPanel("🤖 Sub-agents", r.Tools.Agents, itemsPerPanel, panelWidth)
+	topLeft := toolPanel("Built-in tools", ts.Builtins, itemsPerPanel, panelWidth)
+	topRight := toolPanel("MCP — by server", ts.Servers, itemsPerPanel, panelWidth)
+	botLeft := toolPanel("Skills", ts.Skills, itemsPerPanel, panelWidth)
+	botRight := toolPanel("Sub-agents", ts.Agents, itemsPerPanel, panelWidth)
 
 	row1 := lipgloss.JoinHorizontal(lipgloss.Top,
 		lipgloss.NewStyle().Width(panelWidth).Render(topLeft),
