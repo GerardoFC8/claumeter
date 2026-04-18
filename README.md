@@ -26,7 +26,7 @@ Day         Prompts  Turns   opus-4-6  opus-4-7  sonnet-4-6  haiku   Total
 - **Prompts vs Turns** — correctly separates human messages from assistant API completions. Claude Code is agentic, so the ratio is usually 20–30×.
 - **Session drill-down** — `enter` on the Sessions tab opens a turn-by-turn detail view with per-call tokens, cost, and tools.
 - **Comparative mode** — the Compare tab diffs two date ranges side-by-side with delta and %. Same logic also available via `claumeter compare` and the `/compare` daemon endpoint.
-- **Quota awareness** — plan-aware rate-limit estimation from a local 5-hour rolling window. Header badge shows `X/Y msgs · 5h window (Z%) · resets Nh Mm`. Cycle plans with `Q`.
+- **Plan badge** — header shows the active Claude plan (`pro` / `max-5x` / `max-20x`). Cycle with `Q`. Claumeter used to display a 5-hour quota % but Anthropic doesn't publish the formula and local estimates were too far from reality to be useful — the badge stays, the % is gone. `claumeter quota` and `/quota` still compute the estimate for users who calibrate via `CLAUMETER_QUOTA_*_MESSAGES` env vars.
 - **Cost projection** — projected monthly cost based on the last 7 days of actual spend.
 - **Cache Hit Rate** — share of input tokens served from Anthropic's prompt cache.
 - **Hourly activity heatmap** — sparkline showing which hours of the day you use Claude Code the most.

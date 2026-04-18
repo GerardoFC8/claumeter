@@ -59,8 +59,8 @@ PluginComponent {
     }
 
     // ------------------------------------------------------------------ popout
-    popoutWidth: 560
-    popoutHeight: 460
+    popoutWidth: 700
+    popoutHeight: 540
 
     popoutContent: Component {
         ClaumeterPopout {

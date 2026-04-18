@@ -2,17 +2,6 @@ import QtQuick
 import Quickshell.Io
 import qs.Common
 
-// Central state owner. All tabs and the pill read from this Item.
-// Exposes:
-//   richMode        - bool: daemon reachable
-//   currentRange    - string: "today" | "last-7d" | "last-30d" | "all"
-//   rangeLabel      - string: human label for current range
-//   todayData       - object: compact /today payload
-// TODO(v0.8.0): add quotaData property sourced from GET /quota on the daemon.
-//   Shape: { plan, configured, limit_messages, window_seconds, used_in_window, used_pct, reset_in_seconds }
-//   Poll every 60s; display a quota pill in the Quickshell widget when configured=true.
-//   statsData       - object: full /stats payload (null when range == today)
-//   loadError       - string: last error message (empty = ok)
 Item {
     id: root
 
@@ -23,11 +12,11 @@ Item {
 
     property var todayData: null
     property var statsData: null
+    property var quotaData: null
     property string loadError: ""
 
-    // convenience aliases used by the pill
-    readonly property real cost:    todayData ? (todayData.cost_usd || 0) : 0
-    readonly property bool loaded:  todayData !== null
+    readonly property real cost:   todayData ? (todayData.cost_usd || 0) : 0
+    readonly property bool loaded: todayData !== null
 
     // ------------------------------------------------------------------ internals
     property int _healthFailures: 0
@@ -53,6 +42,15 @@ Item {
         return "/" + parts[0] + "/.../" + parts[parts.length - 1]
     }
 
+    function formatResetIn(seconds) {
+        if (!seconds || seconds <= 0) return "now"
+        const h = Math.floor(seconds / 3600)
+        const m = Math.floor((seconds % 3600) / 60)
+        if (h > 0 && m > 0) return h + "h " + m + "m"
+        if (h > 0) return h + "h"
+        return m + "m"
+    }
+
     // ------------------------------------------------------------------ health probe
     function probeHealth() {
         const xhr = new XMLHttpRequest()
@@ -64,9 +62,9 @@ Item {
                 _healthFailures = 0
                 if (!root.richMode) {
                     root.richMode = true
-                    // immediate data fetch in rich mode: pill + full stats
                     fetchTodayRich()
                     fetchStats(currentRange)
+                    fetchQuota()
                 }
             } else {
                 _handleHealthFailure()
@@ -84,7 +82,7 @@ Item {
         }
     }
 
-    // ------------------------------------------------------------------ rich mode fetch: /today
+    // ------------------------------------------------------------------ fetch /today
     function fetchTodayRich() {
         const xhr = new XMLHttpRequest()
         xhr.open("GET", "http://127.0.0.1:7777/today", true)
@@ -107,14 +105,33 @@ Item {
         xhr.send()
     }
 
-    // ------------------------------------------------------------------ fetch stats (rich + degraded)
+    // ------------------------------------------------------------------ fetch /quota
+    function fetchQuota() {
+        if (!root.richMode) return
+        const xhr = new XMLHttpRequest()
+        xhr.open("GET", "http://127.0.0.1:7777/quota", true)
+        xhr.timeout = 5000
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (xhr.status === 200) {
+                try {
+                    root.quotaData = JSON.parse(xhr.responseText)
+                } catch (e) {
+                    root.quotaData = null
+                }
+            } else {
+                root.quotaData = null
+            }
+        }
+        xhr.onerror   = function () { root.quotaData = null }
+        xhr.ontimeout = function () { root.quotaData = null }
+        xhr.send()
+    }
+
+    // ------------------------------------------------------------------ fetch /stats
     readonly property var _validRanges: ["today", "last-7d", "last-30d", "all"]
 
     function fetchStats(range) {
-        // NOTE: we fetch /stats for EVERY range, including "today". The
-        // compact /today payload drives the rapid 3s pill poll (lightweight),
-        // but Activity and Sessions tabs need the full by_day / by_session
-        // structure, which only /stats returns.
         if (_validRanges.indexOf(range) < 0) return
         const labels = { "today": "Today", "last-7d": "Last 7 days", "last-30d": "Last 30 days", "all": "All time" }
         root.currentRange = range
@@ -146,11 +163,6 @@ Item {
         xhr.send()
     }
 
-    // Degraded mode stats: shells out to `claumeter export --format=json --range=X`
-    // which returns the same shape as the /stats endpoint. Runs for every
-    // range (including "today") so Activity/Sessions tabs have by_day /
-    // by_session data; OverviewTab still uses the lighter todayData for
-    // the pill numbers when range === "today".
     function fetchStatsDegraded(range) {
         statsProcess.rangeArg = range
         if (!statsProcess.running) {
@@ -158,7 +170,7 @@ Item {
         }
     }
 
-    // ------------------------------------------------------------------ degraded mode: process
+    // ------------------------------------------------------------------ degraded mode processes
     Process {
         id: claumeterProcess
         running: false
@@ -167,8 +179,7 @@ Item {
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
-                    const data = JSON.parse(text)
-                    root.todayData = data
+                    root.todayData = JSON.parse(text)
                     root.loadError = ""
                 } catch (e) {
                     root.loadError = "parse error"
@@ -178,9 +189,7 @@ Item {
 
         stderr: StdioCollector {
             onStreamFinished: {
-                if (text && text.length > 0) {
-                    root.loadError = "claumeter: " + text.trim()
-                }
+                if (text && text.length > 0) root.loadError = "claumeter: " + text.trim()
             }
         }
     }
@@ -204,17 +213,13 @@ Item {
 
         stderr: StdioCollector {
             onStreamFinished: {
-                if (text && text.length > 0) {
-                    root.loadError = "claumeter stats: " + text.trim()
-                }
+                if (text && text.length > 0) root.loadError = "claumeter stats: " + text.trim()
             }
         }
     }
 
     function refreshDegraded() {
-        if (!claumeterProcess.running) {
-            claumeterProcess.running = true
-        }
+        if (!claumeterProcess.running) claumeterProcess.running = true
         if (root.currentRange !== "today" && !statsProcess.running) {
             statsProcess.rangeArg = root.currentRange
             statsProcess.running = true
@@ -222,7 +227,6 @@ Item {
     }
 
     // ------------------------------------------------------------------ timers
-    // Health probe every 10s
     Timer {
         id: healthTimer
         interval: 10000
@@ -232,7 +236,6 @@ Item {
         onTriggered: root.probeHealth()
     }
 
-    // Rich mode: poll /today every 3s
     Timer {
         id: richPollTimer
         interval: 3000
@@ -241,7 +244,14 @@ Item {
         onTriggered: root.fetchTodayRich()
     }
 
-    // Degraded mode: poll process every 30s
+    Timer {
+        id: quotaTimer
+        interval: 60000
+        running: root.richMode
+        repeat: true
+        onTriggered: root.fetchQuota()
+    }
+
     Timer {
         id: degradedTimer
         interval: 30000
@@ -252,9 +262,6 @@ Item {
     }
 
     Component.onCompleted: {
-        // Prime statsData for Activity/Sessions tabs even before the user
-        // touches a range chip. Only matters in degraded mode — if the daemon
-        // is up, probeHealth will overwrite via /stats shortly.
         fetchStatsDegraded(root.currentRange)
     }
 }

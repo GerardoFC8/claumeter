@@ -2,16 +2,13 @@ import QtQuick
 import qs.Common
 import qs.Widgets
 
-// Overview tab: big stat numbers + by_model list.
-// Receives data via properties set by ClaumeterPopout.
 Item {
     id: root
 
-    property var dataRef: null      // ClaumeterData instance
+    property var dataRef: null
     property bool richMode: false
     property bool degradedMode: !richMode
 
-    // Resolved values: unify compact and full payload shapes
     readonly property real   resCost:    _resolve("cost_usd",  0)
     readonly property int    resPrompts: _resolve("prompts",   0)
     readonly property int    resTurns:   _resolve("turns",     0)
@@ -22,10 +19,8 @@ Item {
         if (!dataRef) return fallback
         const range = dataRef.currentRange
         if (range === "today" || !dataRef.statsData) {
-            // compact payload
             return dataRef.todayData ? (dataRef.todayData[field] || fallback) : fallback
         }
-        // full payload
         return dataRef.statsData.overall ? (dataRef.statsData.overall[field] || fallback) : fallback
     }
 
@@ -44,15 +39,9 @@ Item {
         if (range === "today" || !dataRef.statsData) {
             return dataRef.todayData ? (dataRef.todayData.by_model || []) : []
         }
-        // full payload: by_model is [{model, ...totals flattened}] — the Go
-        // server embeds TotalsDTO, so turns / cost_usd live at the top level.
         if (!dataRef.statsData.by_model) return []
         return dataRef.statsData.by_model.map(function(m) {
-            return {
-                model: m.model,
-                turns: m.turns || 0,
-                cost_usd: m.cost_usd || 0
-            }
+            return { model: m.model, turns: m.turns || 0, cost_usd: m.cost_usd || 0 }
         })
     }
 
@@ -60,76 +49,100 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingM
 
-        // Big stat row
+        // 4 stat cards
         Row {
             width: parent.width
-            spacing: Theme.spacingL
+            spacing: Theme.spacingS
 
             Repeater {
                 model: [
-                    { label: "Cost",    value: "$" + root.resCost.toFixed(2),                color: Theme.primary },
-                    { label: "Prompts", value: String(root.resPrompts),                       color: Theme.onSurface !== undefined ? Theme.onSurface : Theme.surfaceText },
-                    { label: "Turns",   value: String(root.resTurns),                         color: Theme.onSurface !== undefined ? Theme.onSurface : Theme.surfaceText },
-                    { label: "Tokens",  value: dataRef ? dataRef.compactTokens(root.resTokens) : "0", color: Theme.onSurface !== undefined ? Theme.onSurface : Theme.surfaceText }
+                    { label: "Cost",    value: "$" + root.resCost.toFixed(2),                                      accent: true  },
+                    { label: "Prompts", value: String(root.resPrompts),                                             accent: false },
+                    { label: "Turns",   value: String(root.resTurns),                                              accent: false },
+                    { label: "Tokens",  value: dataRef ? dataRef.compactTokens(root.resTokens) : "0",              accent: false }
                 ]
 
-                Column {
-                    spacing: 2
-                    StyledText {
-                        text: modelData.label
-                        color: Theme.surfaceVariantText
-                        font.pixelSize: Theme.fontSizeSmall
-                    }
-                    StyledText {
-                        text: modelData.value
-                        color: modelData.color
-                        font.pixelSize: Theme.fontSizeLarge
-                        font.bold: true
+                Rectangle {
+                    width: (root.width - Theme.spacingS * 3) / 4
+                    height: cardCol.implicitHeight + Theme.spacingM * 2
+                    radius: Theme.cornerRadius
+                    color: Theme.surfaceContainerHigh
+
+                    Column {
+                        id: cardCol
+                        anchors {
+                            left: parent.left
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            margins: Theme.spacingM
+                        }
+                        spacing: 4
+
+                        StyledText {
+                            text: modelData.label
+                            color: Theme.surfaceVariantText
+                            font.pixelSize: Theme.fontSizeSmall
+                        }
+                        StyledText {
+                            text: modelData.value
+                            color: modelData.accent ? Theme.primary : Theme.surfaceText
+                            font.pixelSize: Theme.fontSizeLarge
+                            font.bold: true
+                        }
                     }
                 }
             }
         }
 
-        Rectangle {
-            width: parent.width
-            height: 1
-            color: Theme.outlineVariant
-        }
-
+        // By model section header
         StyledText {
             text: "By model"
-            color: Theme.surfaceVariantText
+            color: Theme.primary
             font.pixelSize: Theme.fontSizeSmall
+            font.bold: true
         }
 
-        Repeater {
-            model: root.resByModel
+        // By model rows
+        Column {
+            width: parent.width
+            spacing: 0
 
-            Row {
-                width: root.width
-                spacing: Theme.spacingM
+            Repeater {
+                model: root.resByModel
 
-                StyledText {
-                    text: dataRef ? dataRef.shortModel(modelData.model) : modelData.model
-                    color: Theme.surfaceText
-                    width: root.width * 0.55
-                    elide: Text.ElideRight
-                    anchors.verticalCenter: parent.verticalCenter
-                    font.pixelSize: Theme.fontSizeMedium
-                }
-                StyledText {
-                    text: String(modelData.turns) + " turns"
-                    color: Theme.surfaceVariantText
-                    font.pixelSize: Theme.fontSizeSmall
-                    width: root.width * 0.2
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-                StyledText {
-                    text: "$" + (modelData.cost_usd || 0).toFixed(2)
-                    color: Theme.primary
-                    font.bold: true
-                    font.pixelSize: Theme.fontSizeMedium
-                    anchors.verticalCenter: parent.verticalCenter
+                Rectangle {
+                    width: root.width
+                    height: modelRow.implicitHeight + Theme.spacingS
+                    color: index % 2 === 0 ? "transparent" : Qt.rgba(Theme.surfaceText.r, Theme.surfaceText.g, Theme.surfaceText.b, 0.04)
+
+                    Row {
+                        id: modelRow
+                        width: parent.width
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.spacingS
+
+                        StyledText {
+                            text: dataRef ? dataRef.shortModel(modelData.model) : modelData.model
+                            color: Theme.surfaceText
+                            width: root.width * 0.55
+                            elide: Text.ElideRight
+                            font.pixelSize: Theme.fontSizeMedium
+                        }
+                        StyledText {
+                            text: String(modelData.turns) + " turns"
+                            color: Theme.surfaceVariantText
+                            font.pixelSize: Theme.fontSizeSmall
+                            width: root.width * 0.25
+                        }
+                        StyledText {
+                            text: "$" + (modelData.cost_usd || 0).toFixed(2)
+                            color: Theme.primary
+                            font.bold: true
+                            font.pixelSize: Theme.fontSizeMedium
+                            horizontalAlignment: Text.AlignRight
+                            width: root.width * 0.18
+                        }
+                    }
                 }
             }
         }
@@ -145,8 +158,7 @@ Item {
             StyledText {
                 id: bannerText
                 anchors {
-                    left: parent.left
-                    right: parent.right
+                    left: parent.left; right: parent.right
                     verticalCenter: parent.verticalCenter
                     margins: Theme.spacingS
                 }
@@ -157,7 +169,6 @@ Item {
             }
         }
 
-        // Error line
         StyledText {
             visible: dataRef ? dataRef.loadError.length > 0 : false
             text: dataRef ? dataRef.loadError : ""

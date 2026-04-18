@@ -543,27 +543,7 @@ func (m Model) renderQuotaBadge() string {
 	if !s.Configured {
 		return warnStyle.Render("[plan unset · press Q to set]")
 	}
-
-	var pctStyle lipgloss.Style
-	switch {
-	case s.UsedPct >= 80:
-		pctStyle = errorStyle
-	case s.UsedPct >= 50:
-		pctStyle = warnStyle
-	default:
-		pctStyle = goodStyle
-	}
-
-	tag := cardLabelStyle.Render("[" + s.Plan + "]")
-	usageTxt := fmt.Sprintf("%d/%d msgs · 5h window", s.UsedInWindow, s.Limit.MessagesPerWindow)
-	pct := pctStyle.Render(fmt.Sprintf("(%.0f%%)", s.UsedPct))
-
-	var resetPart string
-	if s.ResetIn > 0 {
-		resetPart = cardLabelStyle.Render(" · resets " + formatQuotaDurationTUI(s.ResetIn))
-	}
-
-	return tag + "  " + cardLabelStyle.Render(usageTxt) + " " + pct + resetPart
+	return accentStyle.Render("[" + s.Plan + "]")
 }
 
 func (m Model) renderFilterBadge() string {
@@ -614,21 +594,6 @@ func (m Model) newHint(tabName string) string {
 		return "  " + accentStyle.Render("new!")
 	}
 	return ""
-}
-
-// formatQuotaDurationTUI renders a duration compactly for the TUI header.
-// Examples: "3h 12m", "45m", "1h".
-func formatQuotaDurationTUI(d time.Duration) string {
-	d = d.Round(time.Minute)
-	h := int(d.Hours())
-	m := int(d.Minutes()) - h*60
-	if h == 0 {
-		return fmt.Sprintf("%dm", m)
-	}
-	if m == 0 {
-		return fmt.Sprintf("%dh", h)
-	}
-	return fmt.Sprintf("%dh %dm", h, m)
 }
 
 func (m Model) renderSearchBar() string {

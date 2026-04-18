@@ -3,26 +3,57 @@ import QtQuick.Controls
 import qs.Common
 import qs.Widgets
 
-// Activity tab: days sorted DESC by cost, scrollable.
 Item {
     id: root
 
     property var dataRef: null
 
-    // by_day sorted DESC by cost
     readonly property var days: {
         if (!dataRef || !dataRef.statsData || !dataRef.statsData.by_day) return []
-        // by_day is [{day, ...totals flattened, by_model: {model: totals}}].
-        // Go's embedded TotalsDTO flattens turns / cost_usd at the top level.
         const arr = dataRef.statsData.by_day.slice()
-        arr.sort(function(a, b) {
-            return (b.cost_usd || 0) - (a.cost_usd || 0)
-        })
+        arr.sort(function(a, b) { return (b.cost_usd || 0) - (a.cost_usd || 0) })
         return arr
     }
 
+    // Section header
+    Row {
+        id: headerRow
+        width: parent.width
+        height: 24
+
+        StyledText {
+            text: "Day"
+            color: Theme.primary
+            font.pixelSize: Theme.fontSizeSmall
+            font.bold: true
+            width: parent.width * 0.55
+        }
+        StyledText {
+            text: "Prompts"
+            color: Theme.primary
+            font.pixelSize: Theme.fontSizeSmall
+            font.bold: true
+            width: parent.width * 0.2
+            horizontalAlignment: Text.AlignRight
+        }
+        StyledText {
+            text: "Cost"
+            color: Theme.primary
+            font.pixelSize: Theme.fontSizeSmall
+            font.bold: true
+            width: parent.width * 0.22
+            horizontalAlignment: Text.AlignRight
+        }
+    }
+
     Flickable {
-        anchors.fill: parent
+        anchors {
+            top: headerRow.bottom
+            topMargin: Theme.spacingXS
+            left: parent.left
+            right: parent.right
+            bottom: parent.bottom
+        }
         contentHeight: dayColumn.implicitHeight
         clip: true
         flickableDirection: Flickable.VerticalFlick
@@ -32,20 +63,21 @@ Item {
         Column {
             id: dayColumn
             width: root.width
-            spacing: Theme.spacingS
+            spacing: 0
 
             Repeater {
                 model: root.days
 
-                Item {
+                Rectangle {
                     width: root.width
-                    height: dayRow.implicitHeight + Theme.spacingXS * 2
+                    height: dayRow.implicitHeight + Theme.spacingS * 2
+                    color: index % 2 === 0 ? "transparent" : Qt.rgba(Theme.surfaceText.r, Theme.surfaceText.g, Theme.surfaceText.b, 0.04)
 
                     Column {
                         id: dayRow
-                        width: parent.width - Theme.spacingL
+                        width: parent.width
                         anchors.verticalCenter: parent.verticalCenter
-                        spacing: 2
+                        spacing: 3
 
                         Row {
                             width: parent.width
@@ -55,21 +87,26 @@ Item {
                                 color: Theme.surfaceText
                                 font.pixelSize: Theme.fontSizeMedium
                                 font.bold: true
-                                width: parent.width * 0.6
+                                width: parent.width * 0.55
                                 elide: Text.ElideRight
                             }
-
+                            StyledText {
+                                text: String(modelData.prompts || 0)
+                                color: Theme.surfaceVariantText
+                                font.pixelSize: Theme.fontSizeMedium
+                                horizontalAlignment: Text.AlignRight
+                                width: parent.width * 0.2
+                            }
                             StyledText {
                                 text: "$" + (modelData.cost_usd || 0).toFixed(2)
                                 color: Theme.primary
                                 font.bold: true
                                 font.pixelSize: Theme.fontSizeMedium
                                 horizontalAlignment: Text.AlignRight
-                                width: parent.width * 0.4
+                                width: parent.width * 0.22
                             }
                         }
 
-                        // Top 3 models
                         Row {
                             width: parent.width
                             spacing: Theme.spacingXS
@@ -92,18 +129,9 @@ Item {
                             }
                         }
                     }
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        width: parent.width
-                        height: 1
-                        color: Theme.outlineVariant
-                        opacity: 0.5
-                    }
                 }
             }
 
-            // Empty state
             StyledText {
                 visible: root.days.length === 0
                 width: root.width
@@ -112,6 +140,7 @@ Item {
                 font.pixelSize: Theme.fontSizeMedium
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
+                topPadding: Theme.spacingL
             }
         }
     }
