@@ -279,6 +279,92 @@ func NewSessionDetail(sd stats.SessionDetail) SessionDetailDTO {
 	}
 }
 
+// --- Comparison DTOs ---
+
+// ComparisonSideDTO describes one side (A or B) of a comparison.
+type ComparisonSideDTO struct {
+	Label string    `json:"label"`
+	From  time.Time `json:"from,omitempty"`
+	To    time.Time `json:"to,omitempty"`
+	TotalsDTO
+}
+
+// DeltaDTO is the wire shape for a single metric comparison.
+type DeltaDTO struct {
+	A     float64 `json:"a"`
+	B     float64 `json:"b"`
+	Delta float64 `json:"delta"`
+	Pct   float64 `json:"pct"`
+	Gt    bool    `json:"gt"`
+}
+
+// ComparisonDeltasDTO holds one DeltaDTO per tracked metric.
+type ComparisonDeltasDTO struct {
+	Prompts             DeltaDTO `json:"prompts"`
+	Turns               DeltaDTO `json:"turns"`
+	InputTokens         DeltaDTO `json:"input_tokens"`
+	CacheCreationTokens DeltaDTO `json:"cache_creation_tokens"`
+	CacheReadTokens     DeltaDTO `json:"cache_read_tokens"`
+	OutputTokens        DeltaDTO `json:"output_tokens"`
+	TotalTokens         DeltaDTO `json:"total_tokens"`
+	CostUSD             DeltaDTO `json:"cost_usd"`
+}
+
+// ComparisonPayload is the top-level JSON shape returned by NewComparison and
+// the GET /compare endpoint.
+type ComparisonPayload struct {
+	Schema    string              `json:"schema"`
+	Generated time.Time           `json:"generated"`
+	A         ComparisonSideDTO   `json:"a"`
+	B         ComparisonSideDTO   `json:"b"`
+	Deltas    ComparisonDeltasDTO `json:"deltas"`
+}
+
+func deltaDTO(d stats.Delta) DeltaDTO {
+	return DeltaDTO{
+		A:     d.A,
+		B:     d.B,
+		Delta: d.Delta,
+		Pct:   d.Pct,
+		Gt:    d.Gt,
+	}
+}
+
+// NewComparison constructs a ComparisonPayload from two resolved range sides and
+// the Comparison produced by stats.Compare.
+func NewComparison(
+	aLabel string, aFrom, aTo time.Time, aTotals stats.Totals,
+	bLabel string, bFrom, bTo time.Time, bTotals stats.Totals,
+	cmp stats.Comparison,
+) ComparisonPayload {
+	return ComparisonPayload{
+		Schema:    Schema,
+		Generated: time.Now().UTC(),
+		A: ComparisonSideDTO{
+			Label:     aLabel,
+			From:      aFrom,
+			To:        aTo,
+			TotalsDTO: totalsDTO(aTotals),
+		},
+		B: ComparisonSideDTO{
+			Label:     bLabel,
+			From:      bFrom,
+			To:        bTo,
+			TotalsDTO: totalsDTO(bTotals),
+		},
+		Deltas: ComparisonDeltasDTO{
+			Prompts:             deltaDTO(cmp.Prompts),
+			Turns:               deltaDTO(cmp.Turns),
+			InputTokens:         deltaDTO(cmp.InputTokens),
+			CacheCreationTokens: deltaDTO(cmp.CacheCreationTokens),
+			CacheReadTokens:     deltaDTO(cmp.CacheReadTokens),
+			OutputTokens:        deltaDTO(cmp.OutputTokens),
+			TotalTokens:         deltaDTO(cmp.TotalTokens),
+			CostUSD:             deltaDTO(cmp.CostUSD),
+		},
+	}
+}
+
 func round2(f float64) float64 { return float64(int64(f*100+0.5)) / 100 }
 
 func humanInt(n int) string {

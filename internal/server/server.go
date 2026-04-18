@@ -84,6 +84,7 @@ func NewWithStore(opts Options, store *Store) *Server {
 	mux.HandleFunc("GET /stats", s.stats)
 	mux.HandleFunc("GET /range", s.rangeHandler)
 	mux.HandleFunc("GET /session/{id}", s.session)
+	mux.HandleFunc("GET /compare", s.compare)
 	mux.HandleFunc("GET /live", s.live)
 	s.http = &http.Server{
 		Addr:              opts.Addr,
@@ -264,6 +265,34 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, export.NewSessionDetail(detail))
+}
+
+func (s *Server) compare(w http.ResponseWriter, r *http.Request) {
+	aParam := r.URL.Query().Get("a")
+	bParam := r.URL.Query().Get("b")
+	if aParam == "" || bParam == "" {
+		http.Error(w, "a and b query params are required", http.StatusBadRequest)
+		return
+	}
+	aLabel, aFrom, aTo, aFiltered, err := s.resolveAndApply(aParam)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	bLabel, bFrom, bTo, bFiltered, err := s.resolveAndApply(bParam)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	aReport := stats.Build(aFiltered)
+	bReport := stats.Build(bFiltered)
+	cmp := stats.Compare(aReport.Overall, bReport.Overall)
+	payload := export.NewComparison(
+		aLabel, aFrom, aTo, aReport.Overall,
+		bLabel, bFrom, bTo, bReport.Overall,
+		cmp,
+	)
+	writeJSON(w, http.StatusOK, payload)
 }
 
 // resolveAndApply handles the `range` query param — accepts presets
