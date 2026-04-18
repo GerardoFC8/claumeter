@@ -20,5 +20,5 @@ vendor/
 .DS_Store
 Thumbs.db
 
-# Private ideation (PRD, roadmap drafts)
-/docs/
+# Private ideation (PRD, roadmap drafts, session notes)
+/.notes/

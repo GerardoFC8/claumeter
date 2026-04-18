@@ -126,11 +126,12 @@ For remote exposure (e.g. a home-lab dashboard) pass `--host 0.0.0.0 --token <se
 
 Ready-made status-bar and prompt integrations live under [`widgets/`](./widgets/). Current bundle:
 
+- [DMS](./widgets/dms/claumeter/) — native DankMaterialShell / Quickshell plugin (Linux/Wayland, rich popout)
 - [Waybar](./widgets/waybar/) — niri / sway / Hyprland / river
 - [Starship](./widgets/starship/) — shell prompt segment
 - [Tmux](./widgets/tmux/) — status-bar segment
 
-Each widget can run standalone (`claumeter today --format=waybar` polled on an interval) or point at `claumeter serve` for sub-millisecond responses and real-time push via SSE.
+Each widget can run standalone (`claumeter today` polled on an interval) or point at `claumeter serve` for sub-millisecond responses and real-time push via SSE. See [`docs/WIDGETS.md`](./docs/WIDGETS.md) for the full catalog and chooser table.
 
 ## How it works
 

@@ -64,6 +64,22 @@ brews:
     license: "MIT"
     install: |
       bin.install "claumeter"
+    service: |
+      run [opt_bin/"claumeter", "serve", "--host", "127.0.0.1", "--port", "7777"]
+      keep_alive true
+      log_path var/"log/claumeter.log"
+      error_log_path var/"log/claumeter.err.log"
+    caveats: |
+      To run claumeter as a background service (widgets will use it
+      automatically for real-time data):
+
+        brew services start claumeter
+
+      Then:
+        - curl http://127.0.0.1:7777/today
+        - Widgets (DMS, Waybar) auto-upgrade to rich mode.
+
+      Stop it later with `brew services stop claumeter`.
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
