@@ -26,10 +26,11 @@ const (
 	tabSessions
 	tabProjects
 	tabTools
+	tabCompare
 	tabCount
 )
 
-var tabLabels = []string{"Overview", "Activity", "Sessions", "Projects", "Tools"}
+var tabLabels = []string{"Overview", "Activity", "Sessions", "Projects", "Tools", "Compare"}
 
 type loadedMsg struct {
 	data usage.Data
@@ -72,6 +73,9 @@ type Model struct {
 
 	plan        string       // active Claude plan name; "" means unset, no quota UI shown
 	quotaStatus quota.Status // recomputed in rebuild()
+
+	cmpA stats.FilterPreset // Compare tab: range A (baseline)
+	cmpB stats.FilterPreset // Compare tab: range B (current)
 }
 
 func New(root string) Model {
@@ -103,6 +107,8 @@ func newModelWithTheme(root, themeName, plan string) Model {
 		search:    newSearchState(),
 		themeName: currentTheme.Name,
 		plan:      plan,
+		cmpA:      stats.FilterLast7Days,
+		cmpB:      stats.FilterThisWeek,
 	}
 }
 
@@ -197,6 +203,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, textinput.Blink
 			}
 			return m, nil
+		case "a":
+			if m.active == tabCompare && !m.loading {
+				m.cmpA = m.cmpA.Next()
+			}
+			return m, nil
+		case "A":
+			if m.active == tabCompare && !m.loading {
+				m.cmpA = m.cmpA.Prev()
+			}
+			return m, nil
+		case "b":
+			if m.active == tabCompare && !m.loading {
+				m.cmpB = m.cmpB.Next()
+			}
+			return m, nil
+		case "B":
+			if m.active == tabCompare && !m.loading {
+				m.cmpB = m.cmpB.Prev()
+			}
+			return m, nil
 		case "tab", "right", "l":
 			m.active = (m.active + 1) % tabCount
 			return m, nil
@@ -217,6 +243,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "5":
 			m.active = tabTools
+			return m, nil
+		case "6":
+			m.active = tabCompare
 			return m, nil
 		case "f":
 			if !m.loading {
@@ -455,8 +484,10 @@ func (m Model) renderFooter() string {
 		keys = "esc=back  t=theme  q=quit"
 	} else if m.search.active {
 		keys = "enter=apply  esc=clear  ctrl+u=reset"
+	} else if m.active == tabCompare {
+		keys = "tab/h/l switch • 1-6 jump • a/A cycle A range • b/B cycle B range • t=theme • Q=plan • q quit"
 	} else {
-		keys = "tab/h/l switch • 1-5 jump • f/F filter • / search • t=theme • Q=plan • j/k ↑↓ • g/G top/bot • q quit"
+		keys = "tab/h/l switch • 1-6 jump • f/F filter • / search • t=theme • Q=plan • j/k ↑↓ • g/G top/bot • q quit"
 	}
 	return footerStyle.Width(m.width).Render(keys)
 }
@@ -502,6 +533,8 @@ func (m Model) renderBody() string {
 		return sectionStyle.Render(m.tblProj.View())
 	case tabTools:
 		return renderTools(filterToolStats(m.report.Tools, m.search.query()), m.width, m.height)
+	case tabCompare:
+		return m.renderCompare()
 	}
 	return ""
 }
