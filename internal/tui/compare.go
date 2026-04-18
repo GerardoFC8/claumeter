@@ -117,10 +117,7 @@ func renderCompareTable(cmp stats.Comparison, width int) string {
 	sb.WriteString("\n")
 
 	for _, r := range rows {
-		metric := r.metric
-		if len(metric) > metricW {
-			metric = metric[:metricW-1] + "…"
-		}
+		metric := truncate(r.metric, metricW)
 
 		var aStr, bStr, deltaStr, pctStr string
 		if r.isCost {

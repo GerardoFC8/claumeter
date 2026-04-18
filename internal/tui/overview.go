@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,17 +10,28 @@ import (
 	"github.com/GerardoFC8/claumeter/internal/stats"
 )
 
+const (
+	compactWidth = 100
+	wideWidth    = 140
+	narrowWidth  = 70
+)
+
 func renderOverview(r stats.Report, width int) string {
 	if r.Overall.Turns == 0 && r.Overall.Prompts == 0 {
-		return sectionStyle.Render("No data found in ~/.claude/projects/")
+		return sectionStyle.Render(
+			warnStyle.Render("No JSONL data in ~/.claude/projects/") + "\n\n" +
+				cardLabelStyle.Render("Run Claude Code to generate usage data, then reopen claumeter."),
+		)
 	}
+
+	compact := width < compactWidth
 
 	ratio := ""
 	if r.Overall.Prompts > 0 {
 		ratio = fmt.Sprintf("%.1f×", float64(r.Overall.Turns)/float64(r.Overall.Prompts))
 	}
 
-	cards := []string{
+	allCards := []string{
 		card("Total cost", goodStyle.Render(formatCost(r.Overall.Cost)), "USD, estimated"),
 		card("Tokens", accentStyle.Render(compactNumber(r.Overall.GrandTotal())), humanNumber(r.Overall.GrandTotal())),
 		card("Prompts", cardValueStyle.Render(humanNumber(r.Overall.Prompts)), "human msgs"),
@@ -28,7 +40,19 @@ func renderOverview(r stats.Report, width int) string {
 		card("Sessions", cardValueStyle.Render(humanNumber(len(r.BySession))), ""),
 		card("Days", cardValueStyle.Render(humanNumber(len(r.ByDay))), ""),
 	}
-	row1 := lipgloss.JoinHorizontal(lipgloss.Top, cards...)
+
+	var row1 string
+	switch {
+	case compact:
+		row1 = renderCompactMetrics(r, ratio)
+	case width < wideWidth:
+		row1 = lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.JoinHorizontal(lipgloss.Top, allCards[:4]...),
+			lipgloss.JoinHorizontal(lipgloss.Top, allCards[4:]...),
+		)
+	default:
+		row1 = lipgloss.JoinHorizontal(lipgloss.Top, allCards...)
+	}
 
 	breakdown := lipgloss.JoinVertical(lipgloss.Left,
 		accentStyle.Render("Token breakdown"),
@@ -55,17 +79,60 @@ func renderOverview(r stats.Report, width int) string {
 	topDays := topNDays("Top days (by cost)", r.ByDay, 5)
 	topProjects := topNProjects("Top projects (by cost)", r.ByProject, 5)
 
-	col1 := lipgloss.JoinVertical(lipgloss.Left, breakdown, "", rangeBlock)
+	cacheHit := renderCacheHitRate(r)
+	costProjection := renderCostProjection(r)
+	topSessions := renderTopSessions(r)
+	heatmap := renderHourlyHeatmap(r)
+
+	col1 := lipgloss.JoinVertical(lipgloss.Left, breakdown, "", rangeBlock, "", cacheHit, "", costProjection)
 	col2 := lipgloss.JoinVertical(lipgloss.Left, topModels, "", topDays)
-	col3 := topProjects
+	col3 := lipgloss.JoinVertical(lipgloss.Left, topProjects, "", topSessions)
 
-	bottom := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(width/3).Render(col1),
-		lipgloss.NewStyle().Width(width/3).Render(col2),
-		lipgloss.NewStyle().Width(width/3).Render(col3),
+	var bottom string
+	switch {
+	case width < narrowWidth:
+		bottom = lipgloss.JoinVertical(lipgloss.Left,
+			col1, "", col2, "", col3,
+		)
+	case compact:
+		half := width / 2
+		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
+			lipgloss.NewStyle().Width(half).Render(
+				lipgloss.JoinVertical(lipgloss.Left, col1, "", col2),
+			),
+			lipgloss.NewStyle().Width(width-half).Render(col3),
+		)
+	default:
+		bottom = lipgloss.JoinHorizontal(lipgloss.Top,
+			lipgloss.NewStyle().Width(width/3).Render(col1),
+			lipgloss.NewStyle().Width(width/3).Render(col2),
+			lipgloss.NewStyle().Width(width/3).Render(col3),
+		)
+	}
+
+	return sectionStyle.Render(lipgloss.JoinVertical(lipgloss.Left, row1, "", bottom, "", heatmap))
+}
+
+func renderCompactMetrics(r stats.Report, ratio string) string {
+	const keyW = 16
+	kv := func(key, val string) string {
+		padded := fmt.Sprintf("%-*s", keyW, key+":")
+		return cardLabelStyle.Render(padded) + val
+	}
+
+	turnsVal := cardValueStyle.Render(humanNumber(r.Overall.Turns))
+	if ratio != "" {
+		turnsVal += "  " + cardLabelStyle.Render("("+ratio+" ratio)")
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		kv("Total cost", goodStyle.Render(formatCost(r.Overall.Cost))+" "+cardLabelStyle.Render("USD")),
+		kv("Tokens", accentStyle.Render(compactNumber(r.Overall.GrandTotal()))+" "+cardLabelStyle.Render(humanNumber(r.Overall.GrandTotal()))),
+		kv("Prompts", cardValueStyle.Render(humanNumber(r.Overall.Prompts))),
+		kv("Turns", turnsVal),
+		kv("Sessions", cardValueStyle.Render(humanNumber(len(r.BySession)))),
+		kv("Days", cardValueStyle.Render(humanNumber(len(r.ByDay)))),
 	)
-
-	return sectionStyle.Render(lipgloss.JoinVertical(lipgloss.Left, row1, "", bottom))
 }
 
 func card(label, primary, secondary string) string {
@@ -82,8 +149,7 @@ func topNModels(title string, models []stats.ModelStat, n int) string {
 	}
 	sorted := make([]stats.ModelStat, len(models))
 	copy(sorted, models)
-	sortByCost := func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost }
-	bubbleSort(len(sorted), sortByCost, func(i, j int) { sorted[i], sorted[j] = sorted[j], sorted[i] })
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost })
 	if n > len(sorted) {
 		n = len(sorted)
 	}
@@ -108,8 +174,7 @@ func topNDays(title string, days []stats.DayStat, n int) string {
 	}
 	sorted := make([]stats.DayStat, len(days))
 	copy(sorted, days)
-	sortByCost := func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost }
-	bubbleSort(len(sorted), sortByCost, func(i, j int) { sorted[i], sorted[j] = sorted[j], sorted[i] })
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost })
 	if n > len(sorted) {
 		n = len(sorted)
 	}
@@ -134,8 +199,7 @@ func topNProjects(title string, projects []stats.ProjectStat, n int) string {
 	}
 	sorted := make([]stats.ProjectStat, len(projects))
 	copy(sorted, projects)
-	sortByCost := func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost }
-	bubbleSort(len(sorted), sortByCost, func(i, j int) { sorted[i], sorted[j] = sorted[j], sorted[i] })
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Totals.Cost > sorted[j].Totals.Cost })
 	if n > len(sorted) {
 		n = len(sorted)
 	}
@@ -152,16 +216,6 @@ func topNProjects(title string, projects []stats.ProjectStat, n int) string {
 		))
 	}
 	return b.String()
-}
-
-func bubbleSort(n int, less func(i, j int) bool, swap func(i, j int)) {
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			if less(j, i) {
-				swap(i, j)
-			}
-		}
-	}
 }
 
 func bar(v, max, width int) string {
@@ -192,11 +246,117 @@ func barFloat(v, max float64, width int) string {
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
 	if max <= 1 {
-		return s[:max]
+		return string(runes[:max])
 	}
-	return s[:max-1] + "…"
+	return string(runes[:max-1]) + "…"
+}
+
+func renderCacheHitRate(r stats.Report) string {
+	t := r.Overall
+	denom := t.CacheReadTokens + t.InputTokens
+	if denom == 0 {
+		return accentStyle.Render("Cache Hit Rate") + "\n  —"
+	}
+	pct := float64(t.CacheReadTokens) / float64(denom) * 100
+	return lipgloss.JoinVertical(lipgloss.Left,
+		accentStyle.Render("Cache Hit Rate"),
+		fmt.Sprintf("  %s%.1f%%%s", "", pct, ""),
+		cardLabelStyle.Render("  higher = more savings"),
+	)
+}
+
+func renderCostProjection(r stats.Report) string {
+	title := accentStyle.Render("Projected Monthly Cost")
+	if len(r.ByDay) < 3 {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			title,
+			"  —",
+			cardLabelStyle.Render("  need 3+ days of data"),
+		)
+	}
+	// Use up to 7 most recent days.
+	days := r.ByDay
+	if len(days) > 7 {
+		days = days[:7]
+	}
+	var total float64
+	for _, d := range days {
+		total += d.Totals.Cost
+	}
+	avg := total / float64(len(days))
+	projected := avg * 30
+	return lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"  "+goodStyle.Render(formatCost(projected)),
+		cardLabelStyle.Render(fmt.Sprintf("  based on last %d days avg", len(days))),
+	)
+}
+
+func renderTopSessions(r stats.Report) string {
+	title := accentStyle.Render("Most Expensive Sessions")
+	if len(r.BySession) == 0 {
+		return title + "\n  (none)"
+	}
+	sorted := make([]stats.SessionStat, len(r.BySession))
+	copy(sorted, r.BySession)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Totals.Cost > sorted[j].Totals.Cost
+	})
+	n := 3
+	if n > len(sorted) {
+		n = len(sorted)
+	}
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteString("\n")
+	for i := 0; i < n; i++ {
+		s := sorted[i]
+		dur := s.LastSeen.Sub(s.FirstSeen)
+		b.WriteString(fmt.Sprintf("  %s  %s  %s\n",
+			cardValueStyle.Render(shortSession(s.SessionID)),
+			cardLabelStyle.Render(formatDuration(dur)),
+			goodStyle.Render(formatCost(s.Totals.Cost)),
+		))
+	}
+	b.WriteString(cardLabelStyle.Render("  press 3 to see all sessions"))
+	return b.String()
+}
+
+var sparkBlocks = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+func renderHourlyHeatmap(r stats.Report) string {
+	title := accentStyle.Render("Hourly Activity (prompts per hour, all days in range)")
+	hours := r.PromptsByHour
+	maxVal := 0
+	for _, v := range hours {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	if maxVal == 0 {
+		return title + "\n  " + cardLabelStyle.Render("(no prompt data)")
+	}
+
+	var bars strings.Builder
+	bars.WriteString("  ")
+	for h := 0; h < 24; h++ {
+		v := hours[h]
+		idx := 0
+		if maxVal > 0 {
+			idx = int(float64(v) / float64(maxVal) * float64(len(sparkBlocks)-1))
+		}
+		if v == 0 {
+			bars.WriteString(lipgloss.NewStyle().Foreground(colorMuted).Render(string(sparkBlocks[0])))
+		} else {
+			bars.WriteString(lipgloss.NewStyle().Foreground(colorAccent).Render(string(sparkBlocks[idx])))
+		}
+	}
+
+	labels := cardLabelStyle.Render("  0    6    12   18  23")
+	return lipgloss.JoinVertical(lipgloss.Left, title, bars.String(), labels)
 }

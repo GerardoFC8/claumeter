@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -68,47 +69,58 @@ type Model struct {
 
 	search        searchState
 	themeName     string             // active theme name; kept in sync with currentTheme
+	showHelp      bool
+	showWelcome   bool
 	detailMode    bool
 	detailSession stats.SessionDetail
 
-	plan        string       // active Claude plan name; "" means unset, no quota UI shown
-	quotaStatus quota.Status // recomputed in rebuild()
+	plan            string       // active Claude plan name; "" means unset, no quota UI shown
+	quotaStatus     quota.Status // recomputed in rebuild()
+	tabViewCount    map[string]int
+	onboardingSeen  bool
 
 	cmpA stats.FilterPreset // Compare tab: range A (baseline)
 	cmpB stats.FilterPreset // Compare tab: range B (current)
 }
 
 func New(root string) Model {
-	return newModelWithTheme(root, "dark", "")
+	return newModelWithTheme(root, "dark", "", false, nil)
 }
 
 // NewWithTheme creates a Model with the given named theme pre-applied.
 // Valid names: "dark", "light", "high-contrast". Falls back to "dark".
 func NewWithTheme(root, themeName string) Model {
-	return newModelWithTheme(root, themeName, "")
+	return newModelWithTheme(root, themeName, "", false, nil)
 }
 
-// NewWithConfig creates a Model with theme and plan pre-applied.
+// NewWithConfig creates a Model with theme, plan, onboarding state, and tab-view counts pre-applied.
 // plan is one of "pro", "max-5x", "max-20x", or "" (no quota UI).
-func NewWithConfig(root, themeName, plan string) Model {
-	return newModelWithTheme(root, themeName, plan)
+func NewWithConfig(root, themeName, plan string, onboardingSeen bool, tabViewCount map[string]int) Model {
+	return newModelWithTheme(root, themeName, plan, onboardingSeen, tabViewCount)
 }
 
-func newModelWithTheme(root, themeName, plan string) Model {
+func newModelWithTheme(root, themeName, plan string, onboardingSeen bool, tabViewCount map[string]int) Model {
 	applyTheme(themeByName(themeName))
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(colorAccent)
+	tvc := map[string]int{}
+	for k, v := range tabViewCount {
+		tvc[k] = v
+	}
 	return Model{
-		root:      root,
-		loading:   true,
-		filter:    stats.FilterAll,
-		spin:      sp,
-		search:    newSearchState(),
-		themeName: currentTheme.Name,
-		plan:      plan,
-		cmpA:      stats.FilterLast7Days,
-		cmpB:      stats.FilterThisWeek,
+		root:           root,
+		loading:        true,
+		filter:         stats.FilterAll,
+		spin:           sp,
+		search:         newSearchState(),
+		themeName:      currentTheme.Name,
+		plan:           plan,
+		showWelcome:    !onboardingSeen,
+		onboardingSeen: onboardingSeen,
+		tabViewCount:   tvc,
+		cmpA:           stats.FilterLast7Days,
+		cmpB:           stats.FilterThisWeek,
 	}
 }
 
@@ -125,11 +137,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Welcome overlay is dismissed by any key — but only once the window
+		// has been sized and loading is done, so it was actually visible.
+		if m.showWelcome {
+			key := msg.String()
+			if key == "ctrl+c" || key == "q" {
+				return m, tea.Quit
+			}
+			if !m.loading && m.width > 0 {
+				m.showWelcome = false
+				m.saveOnboardingSeen()
+			}
+			return m, nil
+		}
+
+		// Help overlay captures all keys; only ? and esc close it.
+		// Guard against width==0 so help can't be toggled before first render.
+		if m.showHelp {
+			switch msg.String() {
+			case "ctrl+c":
+				m.persistConfig()
+				return m, tea.Quit
+			case "?", "esc":
+				if m.width > 0 {
+					m.showHelp = false
+				}
+			}
+			return m, nil
+		}
+
 		// Detail mode captures keys separately from normal and search modes.
 		if m.detailMode {
 			switch msg.String() {
 			case "ctrl+c", "q":
+				m.persistConfig()
 				return m, tea.Quit
+			case "?":
+				m.showHelp = true
+				return m, nil
 			case "esc", "backspace":
 				m.detailMode = false
 				return m, nil
@@ -147,6 +192,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.search.active {
 			switch msg.String() {
 			case "ctrl+c":
+				m.persistConfig()
 				return m, tea.Quit
 			case "enter":
 				// Leave search mode, keep filter applied.
@@ -177,7 +223,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "q", "ctrl+c":
+			m.persistConfig()
 			return m, tea.Quit
 		case "enter":
 			// Drill into session detail when on the Sessions tab.
@@ -194,6 +241,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.tblTurns.SetHeight(turnsTableHeight(m.height))
 					}
 				}
+			}
+			return m, nil
+		case "?":
+			if m.width > 0 {
+				m.showHelp = true
 			}
 			return m, nil
 		case "/":
@@ -223,29 +275,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cmpB = m.cmpB.Prev()
 			}
 			return m, nil
-		case "tab", "right", "l":
+		case "tab", "l":
 			m.active = (m.active + 1) % tabCount
+			m.recordTabView(m.active)
 			return m, nil
-		case "shift+tab", "left", "h":
+		case "shift+tab", "h":
 			m.active = (m.active - 1 + tabCount) % tabCount
+			m.recordTabView(m.active)
 			return m, nil
 		case "1":
 			m.active = tabOverview
+			m.recordTabView(m.active)
 			return m, nil
 		case "2":
 			m.active = tabActivity
+			m.recordTabView(m.active)
 			return m, nil
 		case "3":
 			m.active = tabSessions
+			m.recordTabView(m.active)
 			return m, nil
 		case "4":
 			m.active = tabProjects
+			m.recordTabView(m.active)
 			return m, nil
 		case "5":
 			m.active = tabTools
+			m.recordTabView(m.active)
 			return m, nil
 		case "6":
 			m.active = tabCompare
+			m.recordTabView(m.active)
 			return m, nil
 		case "f":
 			if !m.loading {
@@ -327,23 +387,31 @@ func (m *Model) cycleTheme() {
 	applyTheme(next)
 	m.themeName = next.Name
 
-	// Recreate spinner and search state so their baked-in colors are refreshed.
+	// Refresh spinner color; leave search state intact so active queries survive.
 	m.spin.Style = lipgloss.NewStyle().Foreground(colorAccent)
-	m.search = newSearchState()
 
-	// Persist the new theme; log to stderr on failure but keep it active.
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = config.Defaults()
+	m.persistConfig()
+}
+
+func (m *Model) recordTabView(t tab) {
+	if m.tabViewCount == nil {
+		m.tabViewCount = map[string]int{}
 	}
-	cfg.Theme = next.Name
-	if err := config.Save(cfg); err != nil {
-		fmt.Fprintln(os.Stderr, "claumeter: could not save theme preference:", err)
+	key := tabLabels[t]
+	prev := m.tabViewCount[key]
+	m.tabViewCount[key]++
+	if prev < 3 && m.tabViewCount[key] >= 3 {
+		m.persistConfig()
 	}
 }
 
+func (m *Model) saveOnboardingSeen() {
+	m.onboardingSeen = true
+	m.persistConfig()
+}
+
 // cyclePlan rotates through: pro -> max-5x -> max-20x -> "" -> pro.
-// Persists the choice via config.Save(); logs to stderr on failure.
+// Persists the choice via persistConfig(); logs to stderr on failure.
 func (m *Model) cyclePlan() {
 	planRotation := []string{"pro", "max-5x", "max-20x", ""}
 	idx := 0
@@ -355,25 +423,49 @@ func (m *Model) cyclePlan() {
 	}
 	m.plan = planRotation[(idx+1)%len(planRotation)]
 	m.quotaStatus = quota.Compute(m.allData, m.plan, time.Now())
+	m.persistConfig()
+}
 
+// persistConfig writes all model-owned fields (Theme, Plan, OnboardingSeen,
+// TabViewCount) into config and saves atomically. Loading from disk first
+// ensures any fields owned by other tools are not clobbered.
+func (m *Model) persistConfig() {
 	cfg, err := config.Load()
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(os.Stderr, "claumeter: config load failed, skipping persist:", err)
+			return
+		}
 		cfg = config.Defaults()
 	}
+	cfg.Theme = m.themeName
 	cfg.Plan = m.plan
+	cfg.OnboardingSeen = m.onboardingSeen
+	if m.tabViewCount != nil {
+		cfg.TabViewCount = m.tabViewCount
+	}
 	if err := config.Save(cfg); err != nil {
-		fmt.Fprintln(os.Stderr, "claumeter: could not save plan preference:", err)
+		fmt.Fprintln(os.Stderr, "claumeter: could not save config:", err)
 	}
 }
 
 func (m Model) View() string {
+	if m.err != nil {
+		return sectionStyle.Render(warnStyle.Render("Error: ") + m.err.Error())
+	}
+
+	if m.showWelcome && !m.loading && m.width > 0 && m.height > 0 {
+		return renderWelcomeOverlay(m.width, m.height)
+	}
+
 	if m.loading {
 		return sectionStyle.Render(
 			fmt.Sprintf("%s Loading Claude Code usage from %s…", m.spin.View(), m.root),
 		)
 	}
-	if m.err != nil {
-		return sectionStyle.Render(warnStyle.Render("Error: ") + m.err.Error())
+
+	if m.showHelp && m.width > 0 && m.height > 0 {
+		return renderHelpOverlay(m.width, m.height)
 	}
 
 	if m.detailMode {
@@ -398,31 +490,40 @@ func (m Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, bodyBox, footer)
 }
 
+var tabLabelsCompact = []string{"Over", "Act", "Ses", "Proj", "Tool", "Cmp"}
+
 func (m Model) renderHeader() string {
+	compact := m.width < compactWidth
+
 	title := titleStyle.Render("claude-tui")
 
+	labels := tabLabels
+	if compact {
+		labels = tabLabelsCompact
+	}
+
 	tabs := make([]string, 0, int(tabCount))
-	for i, label := range tabLabels {
+	for i, label := range labels {
 		style := tabStyle
 		if tab(i) == m.active {
 			style = tabActiveStyle
 		}
-		tabs = append(tabs, style.Render(fmt.Sprintf("%d. %s", i+1, label)))
+		tabs = append(tabs, style.Render(fmt.Sprintf("%d.%s", i+1, label)))
 	}
 	tabsRow := strings.Join(tabs, "")
 
 	filterTxt := m.renderFilterBadge()
 	quotaTxt := m.renderQuotaBadge()
 
-	left := lipgloss.JoinHorizontal(lipgloss.Left, title, "  ", tabsRow)
-
-	// right side: quota (if configured) + filter badge
-	var right string
-	if quotaTxt != "" {
-		right = quotaTxt + "  " + filterTxt
-	} else {
-		right = filterTxt
+	if compact {
+		line1 := lipgloss.JoinHorizontal(lipgloss.Left, title, " ", tabsRow)
+		line2 := quotaTxt + "  " + filterTxt
+		row := line1 + "\n" + line2
+		return headerBarStyle.Width(m.width).Render(row)
 	}
+
+	left := lipgloss.JoinHorizontal(lipgloss.Left, title, "  ", tabsRow)
+	right := quotaTxt + "  " + filterTxt
 
 	leftWidth := lipgloss.Width(left)
 	rightWidth := lipgloss.Width(right)
@@ -436,11 +537,11 @@ func (m Model) renderHeader() string {
 }
 
 // renderQuotaBadge returns a compact quota indicator for the header.
-// Returns "" when quota is not configured (plan == "").
+// Shows "plan unset" hint when plan == "".
 func (m Model) renderQuotaBadge() string {
 	s := m.quotaStatus
 	if !s.Configured {
-		return ""
+		return warnStyle.Render("[plan unset · press Q to set]")
 	}
 
 	var pctStyle lipgloss.Style
@@ -454,15 +555,15 @@ func (m Model) renderQuotaBadge() string {
 	}
 
 	tag := cardLabelStyle.Render("[" + s.Plan + "]")
-	usage := fmt.Sprintf("%d/%d", s.UsedInWindow, s.Limit.MessagesPerWindow)
+	usageTxt := fmt.Sprintf("%d/%d msgs · 5h window", s.UsedInWindow, s.Limit.MessagesPerWindow)
 	pct := pctStyle.Render(fmt.Sprintf("(%.0f%%)", s.UsedPct))
 
 	var resetPart string
 	if s.ResetIn > 0 {
-		resetPart = cardLabelStyle.Render(" · resets in " + formatQuotaDurationTUI(s.ResetIn))
+		resetPart = cardLabelStyle.Render(" · resets " + formatQuotaDurationTUI(s.ResetIn))
 	}
 
-	return tag + "  " + cardLabelStyle.Render(usage) + " " + pct + resetPart
+	return tag + "  " + cardLabelStyle.Render(usageTxt) + " " + pct + resetPart
 }
 
 func (m Model) renderFilterBadge() string {
@@ -480,16 +581,39 @@ func (m Model) renderFilterBadge() string {
 
 func (m Model) renderFooter() string {
 	var keys string
+	var hint string
 	if m.detailMode {
 		keys = "esc=back  t=theme  q=quit"
+		hint = "esc: back to sessions"
 	} else if m.search.active {
 		keys = "enter=apply  esc=clear  ctrl+u=reset"
 	} else if m.active == tabCompare {
+		newTag := m.newHint("Compare")
 		keys = "tab/h/l switch • 1-6 jump • a/A cycle A range • b/B cycle B range • t=theme • Q=plan • q quit"
+		hint = "a/A b/B: cycle ranges" + newTag
+	} else if m.active == tabSessions {
+		newTag := m.newHint("Sessions")
+		keys = "tab/h/l switch • 1-6 jump • f/F filter • / search • t=theme • Q=plan • ←→ scroll • j/k ↑↓ • q quit"
+		hint = "enter: drill-down into session" + newTag
 	} else {
-		keys = "tab/h/l switch • 1-6 jump • f/F filter • / search • t=theme • Q=plan • j/k ↑↓ • g/G top/bot • q quit"
+		keys = "tab/h/l switch • 1-6 jump • f/F filter • / search • t=theme • Q=plan • ←→ scroll • j/k ↑↓ • q quit"
 	}
-	return footerStyle.Width(m.width).Render(keys)
+	helpHint := cardLabelStyle.Render("? help")
+	if hint != "" {
+		contextLine := cardLabelStyle.Render(hint) + "  " + helpHint
+		return footerStyle.Width(m.width).Render(keys + "\n" + contextLine)
+	}
+	return footerStyle.Width(m.width).Render(keys + "  " + helpHint)
+}
+
+func (m Model) newHint(tabName string) string {
+	if m.tabViewCount == nil {
+		return "  " + accentStyle.Render("new!")
+	}
+	if m.tabViewCount[tabName] < 3 {
+		return "  " + accentStyle.Render("new!")
+	}
+	return ""
 }
 
 // formatQuotaDurationTUI renders a duration compactly for the TUI header.
@@ -532,7 +656,7 @@ func (m Model) renderBody() string {
 	case tabProjects:
 		return sectionStyle.Render(m.tblProj.View())
 	case tabTools:
-		return renderTools(filterToolStats(m.report.Tools, m.search.query()), m.width, m.height)
+		return renderTools(filterToolStats(m.report.Tools, m.search.query()), m.width, m.height, m.filter.Label())
 	case tabCompare:
 		return m.renderCompare()
 	}
@@ -555,18 +679,21 @@ func (m *Model) resizeTables() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	h := m.height - 6
+
+	m.rebuildTableColumns()
+
+	headerH := lipgloss.Height(m.renderHeader())
+	const sectionPad = 2
+	const maxFooterH = 2
+	h := m.height - headerH - maxFooterH - sectionPad
 	if h < 5 {
 		h = 5
 	}
-	// Activity table shrinks to fit content (filtered or unfiltered).
-	// bubbles/table's SetHeight includes the 2-line header — add +2 so the
-	// viewport actually shows all data rows.
-	const headerLines = 2
+	const tableHeaderLines = 2
 	dataRows := len(m.tblActivity.Rows())
-	activityH := dataRows + headerLines
-	if activityH < headerLines+2 {
-		activityH = headerLines + 2
+	activityH := dataRows + tableHeaderLines
+	if activityH < tableHeaderLines+2 {
+		activityH = tableHeaderLines + 2
 	}
 	if activityH > h {
 		activityH = h
@@ -577,6 +704,13 @@ func (m *Model) resizeTables() {
 	if m.detailMode {
 		m.tblTurns.SetHeight(h)
 	}
+}
+
+func (m *Model) rebuildTableColumns() {
+	query := m.search.query()
+	m.tblActivity = newActivityTable(m.report, query, m.width)
+	m.tblSess = newSessionsTable(m.report, query, m.width)
+	m.tblProj = newProjectsTable(m.report, query, m.width)
 }
 
 // renderDetailView renders the session drill-down screen.

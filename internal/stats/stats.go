@@ -88,14 +88,15 @@ type ToolStats struct {
 }
 
 type Report struct {
-	Overall   Totals
-	ByDay     []DayStat
-	ByModel   []ModelStat
-	BySession []SessionStat
-	ByProject []ProjectStat
-	Tools     ToolStats
-	Models    []string // stable list of model names seen (sorted by total usage desc)
-	DateRange [2]time.Time
+	Overall        Totals
+	ByDay          []DayStat
+	ByModel        []ModelStat
+	BySession      []SessionStat
+	ByProject      []ProjectStat
+	Tools          ToolStats
+	Models         []string // stable list of model names seen (sorted by total usage desc)
+	DateRange      [2]time.Time
+	PromptsByHour  [24]int // prompts per hour-of-day aggregated across all filtered data
 }
 
 func Build(data usage.Data) Report {
@@ -191,6 +192,7 @@ func Build(data usage.Data) Report {
 		s.Totals.addPrompt()
 
 		setRange(p.Timestamp)
+		r.PromptsByHour[p.Timestamp.Local().Hour()]++
 	}
 
 	r.Tools = buildToolStats(data.ToolUses)

@@ -9,9 +9,11 @@ import (
 	"github.com/GerardoFC8/claumeter/internal/stats"
 )
 
-func renderTools(ts stats.ToolStats, width, height int) string {
+func renderTools(ts stats.ToolStats, width, height int, filterLabel string) string {
 	if ts.Total == 0 {
-		return sectionStyle.Render("No tool usage in the current filter range.")
+		msg := warnStyle.Render("No tool usage in range "+filterLabel+".") + "\n" +
+			cardLabelStyle.Render("Press f to change range or F to cycle back.")
+		return sectionStyle.Render(msg)
 	}
 
 	header := fmt.Sprintf("%s tool invocations", accentStyle.Render(humanNumber(ts.Total)))

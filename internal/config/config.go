@@ -11,21 +11,25 @@ import (
 // Config holds all user-configurable settings for claumeter.
 // Fields are intentionally flat — no nested sections yet.
 type Config struct {
-	Theme        string `toml:"theme"`         // "dark" | "light" | "high-contrast"
-	DefaultRange string `toml:"default_range"` // "today" | "yesterday" | "last-7d" | "last-30d" | "this-week" | "this-month" | "all"
-	DaemonHost   string `toml:"daemon_host"`   // default "127.0.0.1"
-	DaemonPort   int    `toml:"daemon_port"`   // default 7777
-	Plan         string `toml:"plan,omitempty"` // reserved: "pro" | "max-5x" | "max-20x" | ""
+	Theme          string         `toml:"theme"`           // "dark" | "light" | "high-contrast"
+	DefaultRange   string         `toml:"default_range"`   // "today" | "yesterday" | "last-7d" | "last-30d" | "this-week" | "this-month" | "all"
+	DaemonHost     string         `toml:"daemon_host"`     // default "127.0.0.1"
+	DaemonPort     int            `toml:"daemon_port"`     // default 7777
+	Plan           string         `toml:"plan,omitempty"`  // reserved: "pro" | "max-5x" | "max-20x" | ""
+	OnboardingSeen bool           `toml:"onboarding_seen"` // true after first-run welcome overlay is dismissed
+	TabViewCount   map[string]int `toml:"tab_view_count,omitempty"` // counts tab visits for "new!" hints
 }
 
 // Defaults returns a *Config populated with sensible defaults.
 func Defaults() *Config {
 	return &Config{
-		Theme:        "dark",
-		DefaultRange: "today",
-		DaemonHost:   "127.0.0.1",
-		DaemonPort:   7777,
-		Plan:         "",
+		Theme:          "dark",
+		DefaultRange:   "today",
+		DaemonHost:     "127.0.0.1",
+		DaemonPort:     7777,
+		Plan:           "",
+		OnboardingSeen: false,
+		TabViewCount:   map[string]int{},
 	}
 }
 
