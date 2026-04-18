@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -259,25 +258,12 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session id is required", http.StatusBadRequest)
 		return
 	}
-	report := stats.Build(s.store.Data())
-	for _, sess := range report.BySession {
-		if sess.SessionID == id || strings.HasPrefix(sess.SessionID, id) {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"session_id":  sess.SessionID,
-				"cwd":         sess.Cwd,
-				"first_seen":  sess.FirstSeen,
-				"last_seen":   sess.LastSeen,
-				"duration_s":  sess.LastSeen.Sub(sess.FirstSeen).Seconds(),
-				"prompts":     sess.Totals.Prompts,
-				"turns":       sess.Totals.Turns,
-				"tokens":      sess.Totals.GrandTotal(),
-				"cost_usd":    round2(sess.Totals.Cost),
-				"models":      keys(sess.Models),
-			})
-			return
-		}
+	detail, ok := stats.BuildSessionDetail(s.store.Data(), id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
 	}
-	http.Error(w, "session not found", http.StatusNotFound)
+	writeJSON(w, http.StatusOK, export.NewSessionDetail(detail))
 }
 
 // resolveAndApply handles the `range` query param — accepts presets
@@ -308,12 +294,3 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func round2(f float64) float64 { return float64(int64(f*100+0.5)) / 100 }
-
-func keys(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
-}

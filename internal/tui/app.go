@@ -62,9 +62,12 @@ type Model struct {
 	tblActivity table.Model
 	tblSess     table.Model
 	tblProj     table.Model
+	tblTurns    table.Model // used only in detail mode
 
-	search    searchState
-	themeName string // active theme name; kept in sync with currentTheme
+	search        searchState
+	themeName     string             // active theme name; kept in sync with currentTheme
+	detailMode    bool
+	detailSession stats.SessionDetail
 }
 
 func New(root string) Model {
@@ -105,6 +108,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Detail mode captures keys separately from normal and search modes.
+		if m.detailMode {
+			switch msg.String() {
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			case "esc", "backspace":
+				m.detailMode = false
+				return m, nil
+			case "t":
+				m.cycleTheme()
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.tblTurns, cmd = m.tblTurns.Update(msg)
+				return m, cmd
+			}
+		}
+
 		// Search mode captures most keys; only ctrl+c quits unconditionally.
 		if m.search.active {
 			switch msg.String() {
@@ -141,6 +162,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
+		case "enter":
+			// Drill into session detail when on the Sessions tab.
+			if m.active == tabSessions && !m.loading {
+				row := m.tblSess.SelectedRow()
+				if len(row) > 0 {
+					// Column 0 is the short (8-char) session ID.
+					shortID := row[0]
+					detail, ok := stats.BuildSessionDetail(m.allData, shortID)
+					if ok {
+						m.detailSession = detail
+						m.detailMode = true
+						m.tblTurns = newTurnsTable(detail, m.width)
+						m.tblTurns.SetHeight(turnsTableHeight(m.height))
+					}
+				}
+			}
+			return m, nil
 		case "/":
 			if !m.loading {
 				m.search.active = true
@@ -270,6 +308,10 @@ func (m Model) View() string {
 		return sectionStyle.Render(warnStyle.Render("Error: ") + m.err.Error())
 	}
 
+	if m.detailMode {
+		return m.renderDetailView()
+	}
+
 	header := m.renderHeader()
 	body := m.renderBody()
 	footer := m.renderFooter()
@@ -330,7 +372,9 @@ func (m Model) renderFilterBadge() string {
 
 func (m Model) renderFooter() string {
 	var keys string
-	if m.search.active {
+	if m.detailMode {
+		keys = "esc=back  t=theme  q=quit"
+	} else if m.search.active {
 		keys = "enter=apply  esc=clear  ctrl+u=reset"
 	} else {
 		keys = "tab/h/l switch • 1-5 jump • f/F filter • / search • t=theme • j/k ↑↓ • g/G top/bot • q quit"
@@ -372,6 +416,14 @@ func (m Model) renderActivityBody() string {
 	return sectionStyle.Render(m.tblActivity.View())
 }
 
+func turnsTableHeight(windowHeight int) int {
+	h := windowHeight - 6
+	if h < 5 {
+		h = 5
+	}
+	return h
+}
+
 func (m *Model) resizeTables() {
 	if m.width == 0 || m.height == 0 {
 		return
@@ -395,6 +447,41 @@ func (m *Model) resizeTables() {
 	m.tblActivity.SetHeight(activityH)
 	m.tblSess.SetHeight(h)
 	m.tblProj.SetHeight(h)
+	if m.detailMode {
+		m.tblTurns.SetHeight(h)
+	}
+}
+
+// renderDetailView renders the session drill-down screen.
+func (m Model) renderDetailView() string {
+	sd := m.detailSession
+	dur := sd.LastSeen.Sub(sd.FirstSeen)
+	shortID := shortSession(sd.SessionID)
+
+	// Header bar.
+	headerLine := fmt.Sprintf(
+		"session %s  |  %s  |  %s  |  %s  |  %s tokens",
+		accentStyle.Render(shortID),
+		cardLabelStyle.Render(shortenPath(sd.Cwd)),
+		cardLabelStyle.Render(formatDuration(dur)),
+		goodStyle.Render(formatCost(sd.Totals.Cost)),
+		cardValueStyle.Render(compactNumber(sd.Totals.GrandTotal())),
+	)
+	header := headerBarStyle.Width(m.width).Render(headerLine)
+
+	// Body.
+	body := sectionStyle.Render(m.tblTurns.View())
+
+	// Footer.
+	footer := m.renderFooter()
+
+	bodyHeight := m.height - lipgloss.Height(header) - lipgloss.Height(footer)
+	if bodyHeight < 0 {
+		bodyHeight = 0
+	}
+	bodyBox := lipgloss.NewStyle().Height(bodyHeight).Width(m.width).Render(body)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, bodyBox, footer)
 }
 
 func focusedTableStyles() table.Styles {

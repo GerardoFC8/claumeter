@@ -8,6 +8,51 @@ import (
 	"github.com/GerardoFC8/claumeter/internal/stats"
 )
 
+// newTurnsTable builds the turns table for session drill-down.
+func newTurnsTable(sd stats.SessionDetail, width int) table.Model {
+	// Fixed columns with known widths.
+	const (
+		wTime   = 10 // "HH:MM:SS" + padding
+		wModel  = 20 // short model name
+		wIn     = 9  // input tokens
+		wOut    = 9  // output tokens
+		wCost   = 8  // cost
+		wBorder = 2  // padding/border
+	)
+	fixedW := wTime + wModel + wIn + wOut + wCost + wBorder
+	wTools := width - fixedW - 4 // 4 = table outer padding estimate
+	if wTools < 12 {
+		wTools = 12
+	}
+
+	cols := []table.Column{
+		{Title: "Time", Width: wTime},
+		{Title: "Model", Width: wModel},
+		{Title: "Input", Width: wIn},
+		{Title: "Output", Width: wOut},
+		{Title: "Cost", Width: wCost},
+		{Title: "Tools", Width: wTools},
+	}
+
+	rows := make([]table.Row, 0, len(sd.Turns))
+	for _, t := range sd.Turns {
+		toolStr := strings.Join(t.Tools, ", ")
+		if len(toolStr) > wTools-1 {
+			toolStr = toolStr[:wTools-4] + "..."
+		}
+		rows = append(rows, table.Row{
+			t.Timestamp.Local().Format("15:04:05"),
+			shortModel(t.Model),
+			compactNumber(t.Totals.TotalInput()),
+			compactNumber(t.Totals.OutputTokens),
+			formatCost(t.Totals.Cost),
+			toolStr,
+		})
+	}
+
+	return makeTable(cols, rows)
+}
+
 func (m *Model) buildTables() {
 	m.buildTablesWithQuery("")
 }

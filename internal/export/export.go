@@ -238,6 +238,47 @@ func ToMarkdown(w io.Writer, label string, r stats.Report) error {
 	return err
 }
 
+// SessionDetailDTO is the JSON shape returned by GET /session/:id.
+type SessionDetailDTO struct {
+	SessionID string           `json:"session_id"`
+	Cwd       string           `json:"cwd"`
+	FirstSeen time.Time        `json:"first_seen"`
+	LastSeen  time.Time        `json:"last_seen"`
+	Models    []string         `json:"models"`
+	TotalsDTO                  // flattened at top level
+	Turns     []SessionTurnDTO `json:"turns"`
+}
+
+// SessionTurnDTO is one assistant turn inside a session.
+type SessionTurnDTO struct {
+	Timestamp time.Time `json:"timestamp"`
+	Model     string    `json:"model"`
+	TotalsDTO            // flattened
+	Tools     []string  `json:"tools,omitempty"`
+}
+
+// NewSessionDetail converts a stats.SessionDetail to its DTO form.
+func NewSessionDetail(sd stats.SessionDetail) SessionDetailDTO {
+	turns := make([]SessionTurnDTO, 0, len(sd.Turns))
+	for _, t := range sd.Turns {
+		turns = append(turns, SessionTurnDTO{
+			Timestamp: t.Timestamp,
+			Model:     t.Model,
+			TotalsDTO: totalsDTO(t.Totals),
+			Tools:     t.Tools,
+		})
+	}
+	return SessionDetailDTO{
+		SessionID: sd.SessionID,
+		Cwd:       sd.Cwd,
+		FirstSeen: sd.FirstSeen,
+		LastSeen:  sd.LastSeen,
+		Models:    sd.Models,
+		TotalsDTO: totalsDTO(sd.Totals),
+		Turns:     turns,
+	}
+}
+
 func round2(f float64) float64 { return float64(int64(f*100+0.5)) / 100 }
 
 func humanInt(n int) string {
