@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import qs.Common
 import qs.Widgets
 
@@ -9,11 +10,12 @@ Item {
     property bool richMode: false
     property bool degradedMode: !richMode
 
-    readonly property real   resCost:    _resolve("cost_usd",  0)
-    readonly property int    resPrompts: _resolve("prompts",   0)
-    readonly property int    resTurns:   _resolve("turns",     0)
-    readonly property real   resTokens:  _resolveTokens()
-    readonly property var    resByModel: _resolveByModel()
+    readonly property real   resCost:      _resolve("cost_usd",  0)
+    readonly property int    resPrompts:   _resolve("prompts",   0)
+    readonly property int    resTurns:     _resolve("turns",     0)
+    readonly property real   resTokens:    _resolveTokens()
+    readonly property var    resByModel:   _resolveByModel()
+    readonly property var    resBreakdown: _resolveBreakdown()
 
     function _resolve(field, fallback) {
         if (!dataRef) return fallback
@@ -45,8 +47,41 @@ Item {
         })
     }
 
-    Column {
+    function _resolveBreakdown() {
+        if (!dataRef || !dataRef.statsData || !dataRef.statsData.cost_breakdown) return null
+        return dataRef.statsData.cost_breakdown
+    }
+
+    function _bucketLabel(kind) {
+        switch (kind) {
+            case "input":          return "Input"
+            case "cache_write_5m": return "Cache W (5m)"
+            case "cache_write_1h": return "Cache W (1h)"
+            case "cache_read":     return "Cache Read"
+            case "output":         return "Output"
+        }
+        return kind
+    }
+
+    function _fmtTokens(n) {
+        if (!n) return "0"
+        if (n >= 1e9) return (n / 1e9).toFixed(2) + "B"
+        if (n >= 1e6) return (n / 1e6).toFixed(2) + "M"
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + "K"
+        return String(n)
+    }
+
+    Flickable {
         anchors.fill: parent
+        contentHeight: contentCol.implicitHeight
+        clip: true
+        flickableDirection: Flickable.VerticalFlick
+
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+    Column {
+        id: contentCol
+        width: root.width
         spacing: Theme.spacingM
 
         // 4 stat cards
@@ -147,6 +182,141 @@ Item {
             }
         }
 
+        // Cost breakdown header (overall + per-model, 5 buckets each)
+        StyledText {
+            visible: root.resBreakdown !== null
+            text: "Cost breakdown (Input / Cache / Output)"
+            color: Theme.primary
+            font.pixelSize: Theme.fontSizeSmall
+            font.bold: true
+        }
+
+        // Breakdown list: overall first, then each model.
+        Column {
+            visible: root.resBreakdown !== null
+            width: parent.width
+            spacing: Theme.spacingS
+
+            Repeater {
+                model: {
+                    if (!root.resBreakdown) return []
+                    const rows = []
+                    if (root.resBreakdown.overall) {
+                        rows.push({
+                            model: "overall",
+                            total_cost_usd: root.resBreakdown.overall.total_cost_usd || 0,
+                            pct_of_grand_total: 100,
+                            buckets: root.resBreakdown.overall.buckets || []
+                        })
+                    }
+                    const by = root.resBreakdown.by_model || []
+                    for (let i = 0; i < by.length; i++) {
+                        if ((by[i].total_cost_usd || 0) <= 0) continue
+                        rows.push(by[i])
+                    }
+                    return rows
+                }
+
+                Rectangle {
+                    width: root.width
+                    height: bkCol.implicitHeight + Theme.spacingS * 2
+                    radius: Theme.cornerRadius
+                    color: index === 0
+                        ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                        : Theme.surfaceContainerHigh
+
+                    Column {
+                        id: bkCol
+                        anchors {
+                            left: parent.left; right: parent.right
+                            top: parent.top
+                            margins: Theme.spacingS
+                        }
+                        spacing: 2
+
+                        // Header: model · total $ · % of grand total
+                        Row {
+                            width: parent.width
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                text: modelData.model === "overall"
+                                    ? "Overall"
+                                    : (dataRef ? dataRef.shortModel(modelData.model) : modelData.model)
+                                color: Theme.surfaceText
+                                font.bold: true
+                                font.pixelSize: Theme.fontSizeMedium
+                                width: parent.width * 0.5
+                                elide: Text.ElideRight
+                            }
+                            StyledText {
+                                text: "$" + (modelData.total_cost_usd || 0).toFixed(2)
+                                color: Theme.primary
+                                font.bold: true
+                                font.pixelSize: Theme.fontSizeMedium
+                                width: parent.width * 0.2
+                                horizontalAlignment: Text.AlignRight
+                            }
+                            StyledText {
+                                text: (modelData.pct_of_grand_total || 0).toFixed(1) + "% of total"
+                                color: Theme.surfaceVariantText
+                                font.pixelSize: Theme.fontSizeSmall
+                                width: parent.width * 0.28
+                                horizontalAlignment: Text.AlignRight
+                            }
+                        }
+
+                        // Bucket rows
+                        Repeater {
+                            model: (modelData.buckets || []).filter(function(b) {
+                                return (b.tokens || 0) > 0 || (b.cost_usd || 0) > 0
+                            })
+
+                            Row {
+                                width: bkCol.width
+                                spacing: Theme.spacingS
+
+                                StyledText {
+                                    text: root._bucketLabel(modelData.kind)
+                                    color: Theme.surfaceVariantText
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    width: parent.width * 0.22
+                                }
+                                StyledText {
+                                    text: root._fmtTokens(modelData.tokens || 0)
+                                    color: Theme.surfaceText
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    width: parent.width * 0.22
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                                StyledText {
+                                    text: "$" + (modelData.rate_usd_per_mtok || 0).toFixed(2) + "/M"
+                                    color: Theme.surfaceVariantText
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    width: parent.width * 0.18
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                                StyledText {
+                                    text: "$" + (modelData.cost_usd || 0).toFixed(2)
+                                    color: Theme.surfaceText
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    width: parent.width * 0.18
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                                StyledText {
+                                    text: (modelData.pct_of_parent || 0).toFixed(1) + "%"
+                                    color: Theme.primary
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    width: parent.width * 0.18
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Degraded mode banner
         Rectangle {
             visible: root.degradedMode
@@ -177,5 +347,6 @@ Item {
             wrapMode: Text.WordWrap
             width: parent.width
         }
+    }
     }
 }

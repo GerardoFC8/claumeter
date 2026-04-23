@@ -57,7 +57,8 @@ func renderOverview(r stats.Report, width int) string {
 	breakdown := lipgloss.JoinVertical(lipgloss.Left,
 		accentStyle.Render("Token breakdown"),
 		fmt.Sprintf("  Input (fresh)         %s", humanNumber(r.Overall.InputTokens)),
-		fmt.Sprintf("  Cache creation (1h)   %s", humanNumber(r.Overall.CacheCreationTokens)),
+		fmt.Sprintf("  Cache write (5m)      %s", humanNumber(r.Overall.CacheCreation5mTokens)),
+		fmt.Sprintf("  Cache write (1h)      %s", humanNumber(r.Overall.CacheCreation1hTokens)),
 		fmt.Sprintf("  Cache read            %s", humanNumber(r.Overall.CacheReadTokens)),
 		fmt.Sprintf("  Output                %s", humanNumber(r.Overall.OutputTokens)),
 	)
@@ -83,6 +84,8 @@ func renderOverview(r stats.Report, width int) string {
 	costProjection := renderCostProjection(r)
 	topSessions := renderTopSessions(r)
 	heatmap := renderHourlyHeatmap(r)
+
+	costBreakdown := renderCostBreakdown(r, width)
 
 	col1 := lipgloss.JoinVertical(lipgloss.Left, breakdown, "", rangeBlock, "", cacheHit, "", costProjection)
 	col2 := lipgloss.JoinVertical(lipgloss.Left, topModels, "", topDays)
@@ -110,7 +113,72 @@ func renderOverview(r stats.Report, width int) string {
 		)
 	}
 
-	return sectionStyle.Render(lipgloss.JoinVertical(lipgloss.Left, row1, "", bottom, "", heatmap))
+	return sectionStyle.Render(lipgloss.JoinVertical(lipgloss.Left, row1, "", bottom, "", costBreakdown, "", heatmap))
+}
+
+// renderCostBreakdown shows the 5-bucket cost split (input / cache write 5m /
+// cache write 1h / cache read / output) per model, with rate + cost + % share.
+func renderCostBreakdown(r stats.Report, width int) string {
+	title := accentStyle.Render("Cost Breakdown (Input / Cache / Output)")
+	if r.Overall.Cost == 0 || len(r.ByModel) == 0 {
+		return title + "\n  " + cardLabelStyle.Render("(no priced usage in range)")
+	}
+	cb := stats.BuildCostBreakdown(r)
+
+	bucketLabel := map[string]string{
+		"input":          "Input",
+		"cache_write_5m": "Cache W (5m)",
+		"cache_write_1h": "Cache W (1h)",
+		"cache_read":     "Cache Read",
+		"output":         "Output",
+	}
+
+	// Header: Bucket | Tokens | Rate | Cost | % of model
+	header := fmt.Sprintf("  %-14s %12s %10s %10s %7s",
+		cardLabelStyle.Render("Bucket"),
+		cardLabelStyle.Render("Tokens"),
+		cardLabelStyle.Render("Rate $/M"),
+		cardLabelStyle.Render("Cost"),
+		cardLabelStyle.Render("% of ∑"),
+	)
+
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteString("\n")
+
+	renderModel := func(m stats.ModelBreakdown, pctOfGrand float64) {
+		modelHdr := fmt.Sprintf("  %s  %s  %s",
+			cardValueStyle.Render(shortModel(m.Model)),
+			goodStyle.Render(formatCost(m.TotalCost)),
+			cardLabelStyle.Render(fmt.Sprintf("(%.1f%% of grand total)", pctOfGrand)),
+		)
+		b.WriteString(modelHdr)
+		b.WriteString("\n")
+		b.WriteString(header)
+		b.WriteString("\n")
+		for _, bk := range m.Buckets {
+			if bk.Tokens == 0 && bk.Cost == 0 {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("  %-14s %12s %10s %10s %6.1f%%\n",
+				bucketLabel[bk.Kind],
+				humanNumber(bk.Tokens),
+				fmt.Sprintf("$%.2f", bk.Rate),
+				formatCost(bk.Cost),
+				bk.Pct,
+			))
+		}
+	}
+
+	renderModel(cb.Overall, 100)
+	for _, m := range cb.ByModel {
+		if m.TotalCost == 0 {
+			continue
+		}
+		b.WriteString("\n")
+		renderModel(m, m.Pct)
+	}
+	return b.String()
 }
 
 func renderCompactMetrics(r stats.Report, ratio string) string {

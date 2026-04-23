@@ -9,13 +9,15 @@ import (
 )
 
 type Totals struct {
-	InputTokens         int
-	OutputTokens        int
-	CacheCreationTokens int
-	CacheReadTokens     int
-	Turns               int
-	Prompts             int
-	Cost                float64 // USD, summed per-event
+	InputTokens           int
+	OutputTokens          int
+	CacheCreationTokens   int // total = 5m + 1h (kept for backwards compat)
+	CacheCreation5mTokens int
+	CacheCreation1hTokens int
+	CacheReadTokens       int
+	Turns                 int
+	Prompts               int
+	Cost                  float64 // USD, summed per-event
 }
 
 func (t Totals) TotalInput() int { return t.InputTokens + t.CacheCreationTokens + t.CacheReadTokens }
@@ -25,6 +27,14 @@ func (t *Totals) addEvent(e usage.Event) {
 	t.OutputTokens += e.OutputTokens
 	t.CacheCreationTokens += e.CacheCreationTokens
 	t.CacheReadTokens += e.CacheReadTokens
+	// Split 5m/1h: if JSONL lacks breakdown, attribute the whole creation to 1h
+	// (upper-bound assumption, matches costForEvent).
+	if e.CacheCreation5mTokens+e.CacheCreation1hTokens == 0 {
+		t.CacheCreation1hTokens += e.CacheCreationTokens
+	} else {
+		t.CacheCreation5mTokens += e.CacheCreation5mTokens
+		t.CacheCreation1hTokens += e.CacheCreation1hTokens
+	}
 	t.Turns++
 	t.Cost += costForEvent(e)
 }
@@ -57,6 +67,117 @@ type DayStat struct {
 type ModelStat struct {
 	Model  string
 	Totals Totals
+}
+
+// CostBucket is a per-kind cost row decorated with percent-of-total.
+type CostBucket struct {
+	Kind   string  // "input" | "cache_write_5m" | "cache_write_1h" | "cache_read" | "output"
+	Tokens int
+	Rate   float64
+	Cost   float64
+	Pct    float64 // 0..100, share of total cost (the parent ModelBreakdown.TotalCost or overall)
+}
+
+// ModelBreakdown holds the 5-bucket breakdown for a single model.
+type ModelBreakdown struct {
+	Model     string
+	Buckets   []CostBucket
+	TotalCost float64
+	Pct       float64 // share of grand total across all models
+}
+
+// CostBreakdownReport aggregates per-model breakdowns plus an overall row.
+type CostBreakdownReport struct {
+	Overall   ModelBreakdown // Model = "overall"
+	ByModel   []ModelBreakdown
+	TotalCost float64
+}
+
+// BuildCostBreakdown derives the 5-bucket breakdown per model (sorted by cost
+// descending) plus an "overall" aggregate.
+func BuildCostBreakdown(r Report) CostBreakdownReport {
+	out := CostBreakdownReport{TotalCost: r.Overall.Cost}
+
+	toUsage := func(t Totals) pricing.Usage {
+		return pricing.Usage{
+			InputTokens:           t.InputTokens,
+			CacheCreation5mTokens: t.CacheCreation5mTokens,
+			CacheCreation1hTokens: t.CacheCreation1hTokens,
+			CacheReadTokens:       t.CacheReadTokens,
+			OutputTokens:          t.OutputTokens,
+		}
+	}
+
+	buildOne := func(model string, t Totals, parentCost float64) ModelBreakdown {
+		raw := pricing.Breakdown(model, toUsage(t))
+		buckets := make([]CostBucket, 0, len(raw))
+		var total float64
+		for _, b := range raw {
+			total += b.Cost
+		}
+		for _, b := range raw {
+			pct := 0.0
+			if total > 0 {
+				pct = b.Cost / total * 100
+			}
+			buckets = append(buckets, CostBucket{
+				Kind:   b.Kind,
+				Tokens: b.Tokens,
+				Rate:   b.Rate,
+				Cost:   b.Cost,
+				Pct:    pct,
+			})
+		}
+		share := 0.0
+		if parentCost > 0 {
+			share = total / parentCost * 100
+		}
+		return ModelBreakdown{
+			Model:     model,
+			Buckets:   buckets,
+			TotalCost: total,
+			Pct:       share,
+		}
+	}
+
+	for _, m := range r.ByModel {
+		out.ByModel = append(out.ByModel, buildOne(m.Model, m.Totals, r.Overall.Cost))
+	}
+	sort.Slice(out.ByModel, func(i, j int) bool {
+		return out.ByModel[i].TotalCost > out.ByModel[j].TotalCost
+	})
+
+	// Overall = sum of each bucket kind across all per-model breakdowns.
+	kinds := []string{"input", "cache_write_5m", "cache_write_1h", "cache_read", "output"}
+	idx := map[string]int{}
+	for i, k := range kinds {
+		idx[k] = i
+	}
+	agg := make([]CostBucket, len(kinds))
+	for i, k := range kinds {
+		agg[i].Kind = k
+	}
+	var overallCost float64
+	for _, mb := range out.ByModel {
+		for _, b := range mb.Buckets {
+			i := idx[b.Kind]
+			agg[i].Tokens += b.Tokens
+			agg[i].Cost += b.Cost
+			overallCost += b.Cost
+		}
+	}
+	for i := range agg {
+		if overallCost > 0 {
+			agg[i].Pct = agg[i].Cost / overallCost * 100
+		}
+	}
+	out.Overall = ModelBreakdown{
+		Model:     "overall",
+		Buckets:   agg,
+		TotalCost: overallCost,
+		Pct:       100,
+	}
+	return out
 }
 
 type SessionStat struct {

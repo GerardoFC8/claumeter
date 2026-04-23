@@ -124,12 +124,20 @@ func BuildSessionDetail(data usage.Data, sessionID string) (SessionDetail, bool)
 		t.OutputTokens = e.OutputTokens
 		t.CacheCreationTokens = e.CacheCreationTokens
 		t.CacheReadTokens = e.CacheReadTokens
+		if e.CacheCreation5mTokens+e.CacheCreation1hTokens == 0 {
+			t.CacheCreation1hTokens = e.CacheCreationTokens
+		} else {
+			t.CacheCreation5mTokens = e.CacheCreation5mTokens
+			t.CacheCreation1hTokens = e.CacheCreation1hTokens
+		}
 		t.Turns = 1
 		t.Cost = costForEvent(e)
 
 		sessTotal.InputTokens += t.InputTokens
 		sessTotal.OutputTokens += t.OutputTokens
 		sessTotal.CacheCreationTokens += t.CacheCreationTokens
+		sessTotal.CacheCreation5mTokens += t.CacheCreation5mTokens
+		sessTotal.CacheCreation1hTokens += t.CacheCreation1hTokens
 		sessTotal.CacheReadTokens += t.CacheReadTokens
 		sessTotal.Turns++
 		sessTotal.Cost += t.Cost

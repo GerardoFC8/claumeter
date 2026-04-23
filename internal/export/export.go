@@ -18,15 +18,41 @@ const Schema = "v1"
 
 // Payload is the canonical shape returned by ToJSON. Field names are stable.
 type Payload struct {
-	Schema    string         `json:"schema"`
-	Generated time.Time      `json:"generated"`
-	Range     RangeDTO       `json:"range"`
-	Overall   TotalsDTO      `json:"overall"`
-	ByDay     []DayDTO       `json:"by_day"`
-	ByModel   []ModelDTO     `json:"by_model"`
-	BySession []SessionDTO   `json:"by_session"`
-	ByProject []ProjectDTO   `json:"by_project"`
-	Tools     ToolsDTO       `json:"tools"`
+	Schema        string              `json:"schema"`
+	Generated     time.Time           `json:"generated"`
+	Range         RangeDTO            `json:"range"`
+	Overall       TotalsDTO           `json:"overall"`
+	ByDay         []DayDTO            `json:"by_day"`
+	ByModel       []ModelDTO          `json:"by_model"`
+	BySession     []SessionDTO        `json:"by_session"`
+	ByProject     []ProjectDTO        `json:"by_project"`
+	Tools         ToolsDTO            `json:"tools"`
+	CostBreakdown CostBreakdownDTO    `json:"cost_breakdown"`
+}
+
+// CostBucketDTO is one of the 5 priced buckets (input / cache writes / cache
+// read / output) for a model, with its tokens, rate, cost and share of total.
+type CostBucketDTO struct {
+	Kind   string  `json:"kind"`
+	Tokens int     `json:"tokens"`
+	Rate   float64 `json:"rate_usd_per_mtok"`
+	Cost   float64 `json:"cost_usd"`
+	Pct    float64 `json:"pct_of_parent"`
+}
+
+// ModelBreakdownDTO is the 5-bucket breakdown for a single model.
+type ModelBreakdownDTO struct {
+	Model     string          `json:"model"`
+	Buckets   []CostBucketDTO `json:"buckets"`
+	TotalCost float64         `json:"total_cost_usd"`
+	Pct       float64         `json:"pct_of_grand_total"`
+}
+
+// CostBreakdownDTO aggregates overall + per-model 5-bucket cost breakdowns.
+type CostBreakdownDTO struct {
+	Overall   ModelBreakdownDTO   `json:"overall"`
+	ByModel   []ModelBreakdownDTO `json:"by_model"`
+	TotalCost float64             `json:"total_cost_usd"`
 }
 
 type RangeDTO struct {
@@ -36,14 +62,16 @@ type RangeDTO struct {
 }
 
 type TotalsDTO struct {
-	Prompts             int     `json:"prompts"`
-	Turns               int     `json:"turns"`
-	InputTokens         int     `json:"input_tokens"`
-	CacheCreationTokens int     `json:"cache_creation_tokens"`
-	CacheReadTokens     int     `json:"cache_read_tokens"`
-	OutputTokens        int     `json:"output_tokens"`
-	TotalTokens         int     `json:"total_tokens"`
-	CostUSD             float64 `json:"cost_usd"`
+	Prompts               int     `json:"prompts"`
+	Turns                 int     `json:"turns"`
+	InputTokens           int     `json:"input_tokens"`
+	CacheCreationTokens   int     `json:"cache_creation_tokens"`
+	CacheCreation5mTokens int     `json:"cache_creation_5m_tokens"`
+	CacheCreation1hTokens int     `json:"cache_creation_1h_tokens"`
+	CacheReadTokens       int     `json:"cache_read_tokens"`
+	OutputTokens          int     `json:"output_tokens"`
+	TotalTokens           int     `json:"total_tokens"`
+	CostUSD               float64 `json:"cost_usd"`
 }
 
 type DayDTO struct {
@@ -123,19 +151,55 @@ func buildPayload(label string, from, to time.Time, r stats.Report) Payload {
 	for _, pr := range r.ByProject {
 		p.ByProject = append(p.ByProject, ProjectDTO{Cwd: pr.Cwd, TotalsDTO: totalsDTO(pr.Totals)})
 	}
+	p.CostBreakdown = costBreakdownDTO(stats.BuildCostBreakdown(r))
 	return p
 }
 
 func totalsDTO(t stats.Totals) TotalsDTO {
 	return TotalsDTO{
-		Prompts:             t.Prompts,
-		Turns:               t.Turns,
-		InputTokens:         t.InputTokens,
-		CacheCreationTokens: t.CacheCreationTokens,
-		CacheReadTokens:     t.CacheReadTokens,
-		OutputTokens:        t.OutputTokens,
-		TotalTokens:         t.GrandTotal(),
-		CostUSD:             round2(t.Cost),
+		Prompts:               t.Prompts,
+		Turns:                 t.Turns,
+		InputTokens:           t.InputTokens,
+		CacheCreationTokens:   t.CacheCreationTokens,
+		CacheCreation5mTokens: t.CacheCreation5mTokens,
+		CacheCreation1hTokens: t.CacheCreation1hTokens,
+		CacheReadTokens:       t.CacheReadTokens,
+		OutputTokens:          t.OutputTokens,
+		TotalTokens:           t.GrandTotal(),
+		CostUSD:               round2(t.Cost),
+	}
+}
+
+func costBreakdownDTO(cb stats.CostBreakdownReport) CostBreakdownDTO {
+	toBuckets := func(in []stats.CostBucket) []CostBucketDTO {
+		out := make([]CostBucketDTO, 0, len(in))
+		for _, b := range in {
+			out = append(out, CostBucketDTO{
+				Kind:   b.Kind,
+				Tokens: b.Tokens,
+				Rate:   b.Rate,
+				Cost:   round2(b.Cost),
+				Pct:    round2(b.Pct),
+			})
+		}
+		return out
+	}
+	toModel := func(m stats.ModelBreakdown) ModelBreakdownDTO {
+		return ModelBreakdownDTO{
+			Model:     m.Model,
+			Buckets:   toBuckets(m.Buckets),
+			TotalCost: round2(m.TotalCost),
+			Pct:       round2(m.Pct),
+		}
+	}
+	by := make([]ModelBreakdownDTO, 0, len(cb.ByModel))
+	for _, m := range cb.ByModel {
+		by = append(by, toModel(m))
+	}
+	return CostBreakdownDTO{
+		Overall:   toModel(cb.Overall),
+		ByModel:   by,
+		TotalCost: round2(cb.TotalCost),
 	}
 }
 

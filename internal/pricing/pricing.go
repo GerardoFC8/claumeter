@@ -79,3 +79,34 @@ func Known(model string) bool {
 	_, ok := RateFor(model)
 	return ok
 }
+
+// Bucket is one row of the 5-bucket cost breakdown.
+type Bucket struct {
+	Kind   string  // "input" | "cache_write_5m" | "cache_write_1h" | "cache_read" | "output"
+	Tokens int
+	Rate   float64 // USD per 1M tokens
+	Cost   float64 // USD
+}
+
+// Breakdown returns the 5-bucket cost split for a model+usage. If the model is
+// unknown, it returns buckets with zero rate/cost but real token counts so the
+// caller can still render volume information.
+func Breakdown(model string, u Usage) []Bucket {
+	r, _ := RateFor(model)
+	const million = 1_000_000.0
+	mk := func(kind string, tokens int, rate float64) Bucket {
+		return Bucket{
+			Kind:   kind,
+			Tokens: tokens,
+			Rate:   rate,
+			Cost:   float64(tokens) * rate / million,
+		}
+	}
+	return []Bucket{
+		mk("input", u.InputTokens, r.Input),
+		mk("cache_write_5m", u.CacheCreation5mTokens, r.CacheWrite5m),
+		mk("cache_write_1h", u.CacheCreation1hTokens, r.CacheWrite1h),
+		mk("cache_read", u.CacheReadTokens, r.CacheRead),
+		mk("output", u.OutputTokens, r.Output),
+	}
+}
