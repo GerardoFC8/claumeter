@@ -170,6 +170,10 @@ func BuildCostBreakdown(r Report) CostBreakdownReport {
 		if overallCost > 0 {
 			agg[i].Pct = agg[i].Cost / overallCost * 100
 		}
+		// Blended rate: effective $/M tokens across all models for this bucket.
+		if agg[i].Tokens > 0 {
+			agg[i].Rate = agg[i].Cost / float64(agg[i].Tokens) * 1_000_000
+		}
 	}
 	out.Overall = ModelBreakdown{
 		Model:     "overall",

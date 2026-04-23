@@ -237,7 +237,7 @@ Item {
                         // Header: model · total $ · % of grand total
                         Row {
                             width: parent.width
-                            spacing: Theme.spacingS
+                            spacing: 0
 
                             StyledText {
                                 text: modelData.model === "overall"
@@ -246,7 +246,7 @@ Item {
                                 color: Theme.surfaceText
                                 font.bold: true
                                 font.pixelSize: Theme.fontSizeMedium
-                                width: parent.width * 0.5
+                                width: parent.width * 0.46
                                 elide: Text.ElideRight
                             }
                             StyledText {
@@ -254,19 +254,19 @@ Item {
                                 color: Theme.primary
                                 font.bold: true
                                 font.pixelSize: Theme.fontSizeMedium
-                                width: parent.width * 0.2
+                                width: parent.width * 0.24
                                 horizontalAlignment: Text.AlignRight
                             }
                             StyledText {
                                 text: (modelData.pct_of_grand_total || 0).toFixed(1) + "% of total"
                                 color: Theme.surfaceVariantText
                                 font.pixelSize: Theme.fontSizeSmall
-                                width: parent.width * 0.28
+                                width: parent.width * 0.30
                                 horizontalAlignment: Text.AlignRight
                             }
                         }
 
-                        // Bucket rows
+                        // Bucket rows — widths sum to exactly 1.0, no inter-cell spacing
                         Repeater {
                             model: (modelData.buckets || []).filter(function(b) {
                                 return (b.tokens || 0) > 0 || (b.cost_usd || 0) > 0
@@ -274,40 +274,41 @@ Item {
 
                             Row {
                                 width: bkCol.width
-                                spacing: Theme.spacingS
+                                spacing: 0
 
                                 StyledText {
                                     text: root._bucketLabel(modelData.kind)
                                     color: Theme.surfaceVariantText
                                     font.pixelSize: Theme.fontSizeSmall
-                                    width: parent.width * 0.22
+                                    width: parent.width * 0.26
+                                    elide: Text.ElideRight
                                 }
                                 StyledText {
                                     text: root._fmtTokens(modelData.tokens || 0)
                                     color: Theme.surfaceText
                                     font.pixelSize: Theme.fontSizeSmall
-                                    width: parent.width * 0.22
+                                    width: parent.width * 0.20
                                     horizontalAlignment: Text.AlignRight
                                 }
                                 StyledText {
                                     text: "$" + (modelData.rate_usd_per_mtok || 0).toFixed(2) + "/M"
                                     color: Theme.surfaceVariantText
                                     font.pixelSize: Theme.fontSizeSmall
-                                    width: parent.width * 0.18
+                                    width: parent.width * 0.20
                                     horizontalAlignment: Text.AlignRight
                                 }
                                 StyledText {
                                     text: "$" + (modelData.cost_usd || 0).toFixed(2)
                                     color: Theme.surfaceText
                                     font.pixelSize: Theme.fontSizeSmall
-                                    width: parent.width * 0.18
+                                    width: parent.width * 0.19
                                     horizontalAlignment: Text.AlignRight
                                 }
                                 StyledText {
                                     text: (modelData.pct_of_parent || 0).toFixed(1) + "%"
                                     color: Theme.primary
                                     font.pixelSize: Theme.fontSizeSmall
-                                    width: parent.width * 0.18
+                                    width: parent.width * 0.15
                                     horizontalAlignment: Text.AlignRight
                                 }
                             }
